@@ -1,0 +1,60 @@
+# Entorno virtual --------------------------------
+env/
+.venv/
+venv/
+ENV/
+
+# Python -----------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Credenciales y secretos -------------------------
+config/credentials/
+config/settings.py
+*.json.key
+service-account.json
+service-account*.json
+credentials.json
+token.json
+.env
+.env.*
+!.env.example
+
+# Logs y outputs locales -------------------------
+logs/
+*.log
+outputs/
+data/
+raw/
+
+# IDE --------------------------------------------
+.vscode/
+.idea/  
+*.swp
+*.swo
+
+# OS ---------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Script similares no productivos ---------------
+arbol.py
+arbol.txt
+
+
+# Restantes varios -----------------------------
+*.pyc
+.tmp/
+*.png
+*.csv

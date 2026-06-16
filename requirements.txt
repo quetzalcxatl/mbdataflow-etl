@@ -1,0 +1,9 @@
+pandas
+selenium
+google-cloud-bigquery
+google-cloud-secret-manager
+google-api-python-client
+google-auth
+google-auth-oauthlib
+pytz
+unidecode
