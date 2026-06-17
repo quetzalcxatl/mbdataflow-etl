@@ -20,7 +20,7 @@ dist/
 
 # Credenciales y secretos -------------------------
 config/credentials/
-config/settings.py
+config/settings.py      
 *.json.key
 service-account.json
 service-account*.json

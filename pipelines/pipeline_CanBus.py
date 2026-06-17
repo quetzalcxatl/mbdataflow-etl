@@ -4,9 +4,9 @@ from datetime import datetime
 import pytz
 
 from utils.logger                       import ok, info, err, fmt_fecha, cabecera_fecha
-from Extract.scrapers.CanBus            import CanBus_Scraper
-from Transform.transformers.CanBus      import procesar_fecha
-from Load.loaders.CAN_drive_loader          import CanBus_Drive_Loader
+from extract.scrapers.CanBus            import CanBus_Scraper
+from transform.transformers.CanBus      import procesar_fecha
+from load.loaders.CAN_drive_loader          import CanBus_Drive_Loader
 
 
 def run():

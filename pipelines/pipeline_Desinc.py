@@ -4,8 +4,8 @@ from datetime import datetime
 import pytz
 
 from utils.logger                               import ok, info, err
-from Extract.scrapers.Desincorporaciones        import Desincorporaciones_Scraper
-from Load.loaders.Desincorporaciones_drive_loader     import Desinc_load_to_drive
+from extract.scrapers.Desincorporaciones        import Desincorporaciones_Scraper
+from load.loaders.Desincorporaciones_drive_loader     import Desinc_load_to_drive
 
 
 def run():
