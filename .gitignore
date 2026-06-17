@@ -19,16 +19,14 @@ dist/
 .ruff_cache/
 
 # Credenciales y secretos -------------------------
-config/credentials/
-config/settings.py      
+config/credentials/      
 *.json.key
 service-account.json
 service-account*.json
 credentials.json
 token.json
 .env
-.env.*
-!.env.example
+
 
 # Logs y outputs locales -------------------------
 logs/
