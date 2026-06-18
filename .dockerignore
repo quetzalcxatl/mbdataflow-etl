@@ -1,0 +1,35 @@
+# Virtualenv
+env/
+.venv/
+venv/
+
+# Credenciales — nunca en la imagen
+config/credentials/
+.env
+*.json.key
+
+# Git
+.git/
+.gitignore
+.gcloudignore
+
+# Logs y datos locales
+logs/
+data/
+
+# Caché Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Tests (no van en producción)
+tests/
+
+# Scripts auxiliares
+arbol.py
+arbol.txt
+
+# Docker mismo
+Dockerfile
+.dockerignore
