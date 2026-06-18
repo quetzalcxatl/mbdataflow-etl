@@ -41,4 +41,3 @@ images:
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: E2_MEDIUM_2
