@@ -6,24 +6,18 @@ Helper: Google Drive loader of the Desincorporaciones .csv report files
 
 import os
 import glob
+import google.auth
 from datetime import datetime
 from pathlib import Path
 
-from google.oauth2.credentials          import Credentials
-from google_auth_oauthlib.flow          import InstalledAppFlow
-from google.auth.transport.requests     import Request
 from googleapiclient.discovery          import build
 from googleapiclient.http               import MediaFileUpload
 
 from config.settings import (
     RAW_DESINC_PATH,
     DRIVE_DESINC_FOLDER_ID,
-    TOKEN_PATH,
-    CREDS_PATH,
 )
 from utils.logger import ok, info, err
-
-SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
 
 class Desinc_load_to_drive:
@@ -36,8 +30,7 @@ class Desinc_load_to_drive:
     def __init__(self):
         self.download_dir    = RAW_DESINC_PATH
         self.drive_folder_id = DRIVE_DESINC_FOLDER_ID
-        self.token_path      = TOKEN_PATH
-        self.creds_path      = CREDS_PATH
+        
 
     # ------------------------------------------------------------------
     # Búsqueda local del archivo
@@ -66,20 +59,8 @@ class Desinc_load_to_drive:
     # ------------------------------------------------------------------
 
     def _get_drive_service(self):
-        creds = None
-
-        if self.token_path.exists():
-            creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
-
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow  = InstalledAppFlow.from_client_secrets_file(str(self.creds_path), SCOPES)
-                creds = flow.run_local_server(port=0)
-            with open(self.token_path, "w") as f:
-                f.write(creds.to_json())
-
+        SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+        creds, _ = google.auth.default(scopes=SCOPES)
         return build("drive", "v3", credentials=creds)
 
     # ------------------------------------------------------------------
@@ -95,7 +76,13 @@ class Desinc_load_to_drive:
         )
         response = (
             service.files()
-            .list(q=query, fields="files(id, name)", spaces="drive")
+            .list(
+                q=query,
+                fields="files(id, name)",
+                spaces="drive",
+                supportsAllDrives=True,        # <- agregar
+                includeItemsFromAllDrives=True, # <- agregar
+            )
             .execute()
         )
         files = response.get("files", [])
@@ -120,7 +107,7 @@ class Desinc_load_to_drive:
         media         = MediaFileUpload(str(file_path), mimetype="text/csv", resumable=True)
         uploaded      = (
             service.files()
-            .create(body=file_metadata, media_body=media, fields="id, name")
+            .create(body=file_metadata, media_body=media, fields="id, name", supportsAllDrives=True,)
             .execute()
         )
         ok(f"'{filename}' subido exitosamente. (ID: {uploaded['id']})")
