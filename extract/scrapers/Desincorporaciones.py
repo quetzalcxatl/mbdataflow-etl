@@ -4,25 +4,20 @@ Scraping process for the Ocurrencia de Desincorporaciones report data source.
 
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime
 import time
 from pathlib import Path
-from typing import List
 
 import pandas as pd
 from selenium import webdriver
-from selenium.webdriver import ActionChains
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from ..base import Extractor
-from ..helpers.download_helper import get_latest_row_status
-from config.settings  import SONDA_QUERY_USER, SONDA_QUERY_PASSWORD
-#from ..helpers.CAN_drive_loader import CAN_load_to_drive  
+from config.settings  import SONDA_QUERY_USER, SONDA_QUERY_PASSWORD  
 
 class Desincorporaciones_Scraper(Extractor):
     """Download from the Sonda_CanData source."""
@@ -33,8 +28,8 @@ class Desincorporaciones_Scraper(Extractor):
     # Prepares the download directory 
     def __init__(self, config_path: Path | None = None) -> None:
         project_root = Path(__file__).resolve().parent.parent.parent  # ← un .parent más
-        is_serverless = "FUNCTION_TARGET" in os.environ
-        if is_serverless:
+        is_cloud_run = any(k in os.environ for k in ("CLOUD_RUN_JOB", "K_SERVICE", "CLOUD_RUN_EXECUTION"))
+        if is_cloud_run:
             self.download_dir = Path("/tmp")
         else:
             self.download_dir = project_root / "data" / "raw" / "downloads_Desincorporaciones"
@@ -44,13 +39,23 @@ class Desincorporaciones_Scraper(Extractor):
     # Instanciate Chrome Webdriver throught Selenium package
     def _start_driver(self) -> webdriver.Chrome:
         options = Options()
-        # options.add_argument("--headless")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        prefs = {"download.default_directory": str(self.download_dir)}
-        options.add_experimental_option("prefs", prefs) # Add our default directory 
+        is_cloud_run = any(k in os.environ for k in ("CLOUD_RUN_JOB", "K_SERVICE", "CLOUD_RUN_EXECUTION"))
+        if is_cloud_run:
+            options.add_argument("--headless=new")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--window-size=1366,768")
+        else:
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            prefs = {"download.default_directory": str(self.download_dir)}
+            options.add_experimental_option("prefs", prefs)
+            driver = webdriver.Chrome(options=options)
+            driver.set_window_size(1366, 768)
+            return driver
+
         driver = webdriver.Chrome(options=options)
-        driver.set_window_size(1366, 768)  # Standard laptop screen size
         return driver
     
     # Private sub.method
