@@ -62,10 +62,6 @@ RAW_CIRCUITOS_PATH         = PROJECT_ROOT / "data" / "raw" / "downloads_Circuito
 RAW_FLOTAV_PATH            = PROJECT_ROOT / "data" / "raw" / "downloads_Flota_Vehicular"
 PROCESSED_FLOTAV_PATH      = PROJECT_ROOT / "data" / "processed" / "processed_Flota_Vehicular"
 
-# Legacy OAuth2 paths --------------------------------------------
-# Note: Remove after migration to Service Account auth (PR 1.2)
-TOKEN_PATH = PROJECT_ROOT / "config" / "credentials" / "token.json"
-CREDS_PATH = PROJECT_ROOT / "config" / "credentials" / "credentials.json"
 
 # Static configuration (not environment-dependent) ---------------
 MARCAS_CONFIG = [
