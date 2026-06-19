@@ -24,7 +24,7 @@ def run():
         ok("Scraper completado")
     except Exception as e:
         err(f"Error en Extract: {e} — pipeline detenido")
-        return
+        raise
 
     # ── Load ──────────────────────────────────────────────────
     info("Load — Subiendo a Drive...")
@@ -39,6 +39,7 @@ def run():
         ok(f"Desincorporaciones subido. (ID: {file_id})")
     else:
         err("Desincorporaciones no subido.")
+        raise RuntimeError("Load step failed: no file_id returned")
     print("═"*55 + "\n")
 
 

@@ -40,12 +40,19 @@ class Desincorporaciones_Scraper(Extractor):
     def _start_driver(self) -> webdriver.Chrome:
         options = Options()
         is_cloud_run = any(k in os.environ for k in ("CLOUD_RUN_JOB", "K_SERVICE", "CLOUD_RUN_EXECUTION"))
+
         if is_cloud_run:
             options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
             options.add_argument("--window-size=1366,768")
+            driver = webdriver.Chrome(options=options)
+            # Headless Chrome ignores download prefs — must use CDP
+            driver.execute_cdp_cmd(
+                "Page.setDownloadBehavior",
+                {"behavior": "allow", "downloadPath": str(self.download_dir)},
+            )
         else:
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -53,9 +60,7 @@ class Desincorporaciones_Scraper(Extractor):
             options.add_experimental_option("prefs", prefs)
             driver = webdriver.Chrome(options=options)
             driver.set_window_size(1366, 768)
-            return driver
 
-        driver = webdriver.Chrome(options=options)
         return driver
     
     # Private sub.method
