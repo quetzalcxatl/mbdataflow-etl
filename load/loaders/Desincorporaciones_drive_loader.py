@@ -7,7 +7,6 @@ Helper: Google Drive loader of the Desincorporaciones .csv report files
 import os
 import glob
 import google.auth
-from datetime import datetime
 from pathlib import Path
 
 from googleapiclient.discovery          import build
@@ -18,6 +17,7 @@ from config.settings import (
     DRIVE_DESINC_FOLDER_ID,
 )
 from utils.logger import ok, info, err
+from utils.dates import yesterday_cdmx
 
 
 class Desinc_load_to_drive:
@@ -37,7 +37,7 @@ class Desinc_load_to_drive:
     # ------------------------------------------------------------------
 
     def find_csv_file(self) -> Path:
-        date_str  = datetime.now().strftime("%d%m%y")
+        date_str  = yesterday_cdmx().strftime("%d%m%y")
         filename  = f"Desinc_{date_str}.csv"
         full_path = self.download_dir / filename
 

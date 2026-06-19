@@ -1,21 +1,17 @@
 # pipelines/pipeline_desincorporaciones.py
 # -*- coding: utf-8 -*-
-from datetime import datetime
-import pytz
 
 from utils.logger                               import ok, info, err
 from extract.scrapers.Desincorporaciones        import Desincorporaciones_Scraper
 from load.loaders.Desincorporaciones_drive_loader     import Desinc_load_to_drive
-
+from utils.dates import yesterday_cdmx
 
 def run():
-    tz    = pytz.timezone('America/Mexico_City')
-    fecha = datetime.now(tz)
+    fecha_datos = yesterday_cdmx()
 
     print("\n" + "═"*55)
     print("  📋  DESINCORPORACIONES — Pipeline ETL")
-    print(f"  📅  Fecha: {fecha.strftime('%d/%m/%Y')}")
-    print("═"*55)
+    print(f"  📅  Fecha de datos: {fecha_datos.strftime('%d/%m/%Y')}")
 
     # ── Extract ───────────────────────────────────────────────
     info("Extract — Descargando archivo del día...")
