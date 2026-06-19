@@ -17,7 +17,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from ..base import Extractor
-from config.settings  import SONDA_QUERY_USER, SONDA_QUERY_PASSWORD  
+from config.settings import SONDA_QUERY_USER, SONDA_QUERY_PASSWORD, RAW_DESINC_PATH
 
 class Desincorporaciones_Scraper(Extractor):
     """Download from the Sonda_CanData source."""
@@ -27,13 +27,8 @@ class Desincorporaciones_Scraper(Extractor):
     # Constructor sub-method
     # Prepares the download directory 
     def __init__(self, config_path: Path | None = None) -> None:
-        project_root = Path(__file__).resolve().parent.parent.parent  # ← un .parent más
-        is_cloud_run = any(k in os.environ for k in ("CLOUD_RUN_JOB", "K_SERVICE", "CLOUD_RUN_EXECUTION"))
-        if is_cloud_run:
-            self.download_dir = Path("/tmp")
-        else:
-            self.download_dir = project_root / "data" / "raw" / "downloads_Desincorporaciones"
-        self.download_dir.mkdir(parents=True, exist_ok=True)  # ← parents=True por si data/raw/ no existe
+        self.download_dir = RAW_DESINC_PATH
+        self.download_dir.mkdir(parents=True, exist_ok=True)
 
     # Private sub-method
     # Instanciate Chrome Webdriver throught Selenium package

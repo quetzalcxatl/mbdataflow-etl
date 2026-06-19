@@ -20,6 +20,18 @@ load_dotenv(find_dotenv())
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent # Project root
 
+def _runtime_path(local_path: Path) -> Path:
+    """Resolve a path based on runtime environment.
+
+    Returns /tmp when running in Cloud Run (the only writable location in
+    the container), otherwise returns the local development path.
+    """
+    is_cloud_run = any(
+        k in os.environ for k in ("CLOUD_RUN_JOB", "K_SERVICE", "CLOUD_RUN_EXECUTION")
+    )
+    return Path("/tmp") if is_cloud_run else local_path
+
+
 # --- GCP ---------------------------------------------------------
 GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 
@@ -54,7 +66,7 @@ CANDATA_DRIVE_PROCESSED_FOLDERS = {
 
 # --- Local filesystem paths (derived from project root) ----------
 # Cloud Run override happens at the scraper level (PR 1.3)
-RAW_DESINC_PATH            = PROJECT_ROOT / "data" / "raw" / "downloads_Desincorporaciones"
+RAW_DESINC_PATH = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Desincorporaciones")
 RAW_CANBUS_PATH            = PROJECT_ROOT / "data" / "raw" / "downloads_CanBus"
 PROCESSED_CANBUS_PATH      = PROJECT_ROOT / "data" / "processed" / "processed_CanBus"
 RAW_REPORTES_OPERADOR_PATH = PROJECT_ROOT / "data" / "raw" / "downloads_Reporte_Operadores"
