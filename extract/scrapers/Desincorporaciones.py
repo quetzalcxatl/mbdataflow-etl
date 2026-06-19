@@ -5,7 +5,6 @@ Scraping process for the Ocurrencia de Desincorporaciones report data source.
 from __future__ import annotations
 
 import os
-from datetime import datetime
 import time
 from pathlib import Path
 
@@ -16,6 +15,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from utils.dates import yesterday_cdmx
 from ..base import Extractor
 from config.settings import SONDA_QUERY_USER, SONDA_QUERY_PASSWORD, RAW_DESINC_PATH
 
@@ -226,10 +226,10 @@ class Desincorporaciones_Scraper(Extractor):
 
 #---------------------------------Scrape_Method------------------------------------------
     def scrape(self) -> None:
-        """Scrape data from the Sonda PV website and upload the CSV to Google Drive."""
-        now = datetime.now()
-        date_str  = now.strftime("%d%m%Y")
-        date_str_ = now.strftime("%d%m%y")
+        """Scrape data from the Sonda website for the previous day."""
+        target_date = yesterday_cdmx()
+        date_str  = target_date.strftime("%d%m%Y")
+        date_str_ = target_date.strftime("%d%m%y")
 
         driver = self._start_driver()
         try:
