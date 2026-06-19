@@ -1,6 +1,5 @@
 # ============================================================
 # MBDataFlow_ETL — Cloud Build configuration
-# Triggered manually or via GitHub push to main.
 # Builds the shared pipeline image and pushes to Artifact Registry.
 # ============================================================
 
@@ -8,6 +7,7 @@ substitutions:
   _REGION: us-central1
   _REPO: mbdataflow
   _IMAGE: etl-pipelines
+  _SHA: latest   # override via --substitutions=_SHA=<short-sha>
 
 steps:
   # ── Step 1: Build the image ──────────────────────────────
@@ -15,7 +15,7 @@ steps:
     id: build
     args:
       - build
-      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_IMAGE:$SHORT_SHA
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_IMAGE:$_SHA
       - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_IMAGE:latest
       - --cache-from=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_IMAGE:latest
       - .
@@ -25,7 +25,7 @@ steps:
     id: push-sha
     args:
       - push
-      - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_IMAGE:$SHORT_SHA
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_IMAGE:$_SHA
     waitFor: [build]
 
   - name: gcr.io/cloud-builders/docker
@@ -36,7 +36,7 @@ steps:
     waitFor: [build]
 
 images:
-  - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_IMAGE:$SHORT_SHA
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_IMAGE:$_SHA
   - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_IMAGE:latest
 
 options:
