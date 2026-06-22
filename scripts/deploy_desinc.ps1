@@ -73,7 +73,8 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 Write-Host "==> Deploy complete." -ForegroundColor Green
 Write-Host "    Image tag: $shortSha (also tagged :latest)"
-Write-Host "    Next scheduled run: 6:00 AM CDMX (Cloud Scheduler)"
+Write-Host "    Next scheduled run: 5:00 AM CDMX (Cloud Scheduler)"
+
 
 # --- Optional execution ------------------------------------
 if ($Execute) {
