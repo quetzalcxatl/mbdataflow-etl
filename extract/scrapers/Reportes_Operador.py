@@ -1,5 +1,5 @@
 """
-Scraping process for the Ocurrencia de Desincorporaciones report data source.
+Scraping process for the Reportes Operador report data source.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from config.settings  import SONDA_QUERY_USER, SONDA_QUERY_PASSWORD
 #from ..helpers.CAN_drive_loader import CAN_load_to_drive  
 
 class ReporteOperadores_Scraper(Extractor):
-    """Download from the Sonda_CanData source."""
+    """Download from the Sonde Reportes source."""
 
     name = "Reporte_Operadores"
 
@@ -256,7 +256,7 @@ class ReporteOperadores_Scraper(Extractor):
 
 
 # Bloque que permite test execution 
-# En prompt invocas python -m Extract.scrapers.Reporte_Operadores
+# En prompt invocas python -m extract.scrapers.Reportes_Operador
 if __name__ == "__main__":
     scraper = ReporteOperadores_Scraper()
     scraper.run()    
