@@ -207,7 +207,7 @@ class FlotaV_Scraper(Extractor):
         return df
 
 # Test execution block 
-# Terminal call: python -m Extract.scrapers.CanBus
+# Terminal call: python -m extract.scrapers.FlotaVehicular
 if __name__ == "__main__":
     scraper = FlotaV_Scraper()
     scraper.run() 

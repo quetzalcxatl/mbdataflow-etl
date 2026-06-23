@@ -291,7 +291,7 @@ class CanBus_Scraper(Extractor):
         return None
     
 # Bloque que permite test execution 
-# En prompt invocas python -m Extract.scrapers.CanBus
+# En prompt invocas python -m extract.scrapers.CanBus
 if __name__ == "__main__":
     scraper = CanBus_Scraper()
     scraper.run()
