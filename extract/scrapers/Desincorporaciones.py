@@ -253,7 +253,7 @@ class Desincorporaciones_Scraper(Extractor):
         return None    
 
 # Bloque que permite test execution 
-# En prompt invocas python -m Extract.scrapers.Desincorporaciones
+# En prompt invocas python -m extract.scrapers.Desincorporaciones
 if __name__ == "__main__":
     scraper = Desincorporaciones_Scraper()
     scraper.run()

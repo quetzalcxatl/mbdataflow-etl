@@ -20,7 +20,7 @@ from ..base import Extractor
 
 
 class Interval_Scraper(Extractor):
-    """Download and load data for the Interval source."""
+    """Download and load data for the Reporte_Viaje source."""
 
     name = "Intervalos"
 
@@ -159,7 +159,7 @@ class Interval_Scraper(Extractor):
         
 
     def scrape(self) -> None:
-        """Scrape data from the Sonda PV website and upload the CSV to Google Drive."""
+        """Scrape data from the Sonda PV"""
         now = datetime.now()
         date_str  = now.strftime("%d%m%Y")
         date_str_ = now.strftime("%d%m%y")
@@ -205,7 +205,7 @@ class Interval_Scraper(Extractor):
         return None
     
 # Bloque que permite test execution 
-# En prompt invocas python -m Extract.scrapers.Intervalos
+# En prompt invocas python -m extract.scrapers.Reporte_Viaje
 if __name__ == "__main__":
     scraper = Interval_Scraper()
     scraper.run()
