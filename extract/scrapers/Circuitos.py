@@ -17,7 +17,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from utils.dates import last_completed_week_cdmx
 from ..base import Extractor
-from config.settings import SONDA_QUERY_USER, SONDA_QUERY_PASSWORD, RAW_CIRCUITOS_PATH
+from config.settings import (
+    SONDA_QUERY_USER,
+    SONDA_QUERY_PASSWORD, 
+    RAW_CIRCUITOS_PATH,
+    )
 
 class Circuitos_Scraper(Extractor):
     """Download from the Circuitos source."""
