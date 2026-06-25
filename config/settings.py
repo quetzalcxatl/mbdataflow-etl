@@ -70,7 +70,7 @@ RAW_DESINC_PATH = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Desin
 RAW_CANBUS_PATH            = PROJECT_ROOT / "data" / "raw" / "downloads_CanBus"
 PROCESSED_CANBUS_PATH      = PROJECT_ROOT / "data" / "processed" / "processed_CanBus"
 RAW_REPORTES_OPERADOR_PATH = PROJECT_ROOT / "data" / "raw" / "downloads_Reporte_Operadores"
-RAW_CIRCUITOS_PATH         = PROJECT_ROOT / "data" / "raw" / "downloads_Circuitos"
+RAW_CIRCUITOS_PATH         = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Circuitos")
 RAW_FLOTAV_PATH            = PROJECT_ROOT / "data" / "raw" / "downloads_Flota_Vehicular"
 PROCESSED_FLOTAV_PATH      = PROJECT_ROOT / "data" / "processed" / "processed_Flota_Vehicular"
 
