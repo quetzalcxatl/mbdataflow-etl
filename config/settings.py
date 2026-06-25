@@ -52,7 +52,8 @@ SONDA_PERSONAL_PASSWORD = os.environ.get("SONDA_PERSONAL_PASSWORD")
 # --- Drive Folder IDs (per pipeline) ----------------------------
 DRIVE_DESINC_FOLDER_ID            = os.environ.get("DRIVE_DESINC_FOLDER_ID")
 DRIVE_REPORTES_OPERADOR_FOLDER_ID = os.environ.get("DRIVE_REPORTES_OPERADOR_FOLDER_ID")
-DRIVE_CIRCUITOS_FOLDER_ID         = os.environ.get("DRIVE_CIRCUITOS_FOLDER_ID")
+DRIVE_CIRC_DESGLOSADO_FOLDER_ID   = os.environ.get("DRIVE_CIRC_DESGLOSADO_FOLDER_ID")
+DRIVE_CIRC_EJECUTIVO_FOLDER_ID    = os.environ.get("DRIVE_CIRC_EJECUTIVO_FOLDER_ID")
 
 # --- CanBus multiple folders ------------------------------------
 CANDATA_DRIVE_PROCESSED_FOLDERS = {
