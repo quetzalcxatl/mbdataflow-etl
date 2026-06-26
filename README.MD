@@ -31,9 +31,8 @@ MBDataFlow_ETL/
 
 | Pipeline | Description | Status |
 |---|---|---|
-| `pipeline_Desinc` | Vehicle decommissioning records | ✅ Functional |
-| `pipeline_CanBus` | CAN bus telemetry ingestion | ✅ Functional |
-| `pipeline_rangofechas_canbus` | CAN bus historical backfill | ✅ Functional |
+| `pipeline_Desinc` | Vehicle disincorporation | ✅ Functional |
+| `pipeline_Circuitos` | Metrobus circuit reports | ✅ Functional |
 | Others | Various extractors and transformers | 🚧 In progress |
 
 ## Deployment
