@@ -279,8 +279,8 @@ class Circuitos_Scraper(Extractor):
         try:
             self._login(driver)
             self._navigate_to_report(driver)
-            #desglosado_path, ejecutivo_path = self._download_report_by_date_and_hour(driver, iso_date_i, iso_date_f, name_date)
-            self._download_reports(driver, iso_date_i, iso_date_f, name_date)
+            desglosado_path, ejecutivo_path = self._download_reports(driver, iso_date_i, iso_date_f, name_date)
+            #self._download_reports(driver, iso_date_i, iso_date_f, name_date)
             #self._navigate_to_downloads(driver)
             #self._download(driver, date_str_)
 
@@ -295,7 +295,7 @@ class Circuitos_Scraper(Extractor):
         )
         file_id = loader.run()'''
 
-        return None    
+        return desglosado_path, ejecutivo_path 
 
 
 # Bloque que permite test execution 
