@@ -25,7 +25,7 @@ class Extractor(ABC):
 
     def run(self) -> None:
         """Execute the extraction (in general) steps."""
-        self.scrape()
+        return self.scrape()
         #raw_data = self.scrape()
         #transformed = self.transform(raw_data)
         #self.load(transformed)
