@@ -16,7 +16,9 @@ Monorepo de pipelines ETL/EL para datos operativos de Metrobús CDMX. Cada pipel
 |---|---|---|---|
 | `pipeline_Desinc` | EL | ✅ Producción | Cloud Scheduler diario · 5:00 AM CDMX |
 | `pipeline_Circuitos` | EL | 🧪 Funcional local, sin deploy | Manual |
-| Otros (FlotaVehicular, ReportesOperador, Circuitos) | En desarrollo | 🚧 | — |
+| `pipeline_CanBus` | EL | 🧊 Pausado · calidad de datos upstream | — |
+| `pipeline_rangofechas_canbus` | EL | 🧊 Pausado · calidad de datos upstream | — |
+| Otros (FlotaVehicular, ReportesOperador) | En desarrollo | 🚧 | — |
 
 ---
 
@@ -45,16 +47,19 @@ MBDataFlow_ETL/
 │   ├── helpers/
 │   └── scrapers/
 │       └── Desincorporaciones.py
+|       └── Circuitos.py   
 ├── transform/
 │   └── transformers/
 ├── load/
 │   ├── base.py                  # Loader ABC
 │   └── loaders/
 │       └── Desincorporaciones_drive_loader.py
+│       └── Circuitos_drive_loader.py
 ├── pipelines/
 │   ├── pipeline_Desinc.py       # entrypoints invocables como python -m
-│   ├── pipeline_CanBus.py
-│   └── pipeline_rangofechas_canbus.py
+│   ├── pipeline_Circuitos.py
+│   ├── pipeline_CanBus.py                  # en pausa
+│   └── pipeline_rangofechas_canbus.py      # en pausa
 ├── utils/
 │   ├── dates.py                 # yesterday_cdmx(), today_cdmx() · TZ-aware
 │   ├── logger.py
@@ -110,7 +115,7 @@ Todos los `RAW_*_PATH` deben envolverse con esta función para que el scraper y 
 
 ### 5.5 Fechas timezone-aware en CDMX
 
-`utils/dates.py` expone `yesterday_cdmx()` y `today_cdmx()`. Cualquier referencia a "el día actual" o "ayer" en el código debe usar estas funciones — nunca `datetime.now()` directo.
+`utils/dates.py` expone `yesterday_cdmx()`, `today_cdmx()` y `last_completed_week_cdmx()` (retorna tupla `(monday, sunday)` de la última semana completa estrictamente anterior a hoy). Cualquier referencia a "el día actual", "ayer" o "la semana vencida" en el código debe usar estas funciones — nunca `datetime.now()` directo.
 
 **Razón:** `datetime.now()` naive devuelve la hora local del sistema; en Cloud Run es UTC, en local es CDMX. Para pipelines que procesan datos "del día anterior", esto produce bugs sutiles cuando se ejecuta cerca de medianoche UTC.
 
@@ -201,9 +206,11 @@ Cuando lleguemos a 3-4 pipelines en producción, conviene revisar acumulación d
 
 ### Inmediato
 - Observar 1-2 semanas de operación real de `pipeline_Desinc`. Detectar edge cases (feriados, ventanas de mantenimiento de Sonda, cambios de horario verano/invierno).
+- Deploy de `pipeline_Circuitos` a Cloud Run Job. Patrón replicado de Desinc: mismos secretos de Sonda, nuevos folder IDs de Drive (`DRIVE_CIRC_DESGLOSADO_FOLDER_ID`, `DRIVE_CIRC_EJECUTIVO_FOLDER_ID`), cron semanal lunes 7:00 AM CDMX. Pendiente: scripts de deploy, primera ejecución manual validada, alert policy en Cloud Monitoring.
 
 ### Próximo
-- Replicar patrón para `pipeline_Circuitos`. Lo que cambia respecto a Desinc: paths con `_runtime_path()`, secretos específicos en Secret Manager, propio Job/Scheduler/alerta. Lo que se reutiliza: Dockerfile, SA, cloudbuild.yaml, esquema general.
+- Siguiente pipeline en cola (FlotaVehicular o ReportesOperador, según prioridad). Lo que se reutiliza del patrón Desinc/Circuitos: Dockerfile, SA, cloudbuild.yaml, esquema general de scripts de deploy. Lo que típicamente cambia: paths con `_runtime_path()`, folder IDs, frecuencia del cron, secretos si la fuente difiere.
+- Retomar `pipeline_CanBus` y `pipeline_rangofechas_canbus` cuando se resuelvan los problemas de calidad de datos upstream que motivaron la pausa.
 
 ### A mediano plazo
 - Tests automatizados de los loaders (mockeable contra Drive sin red).
