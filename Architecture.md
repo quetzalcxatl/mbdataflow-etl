@@ -15,10 +15,10 @@ Monorepo de pipelines ETL/EL para datos operativos de Metrobús CDMX. Cada pipel
 | Pipeline | Tipo | Estado | Trigger |
 |---|---|---|---|
 | `pipeline_Desinc` | EL | ✅ Producción | Cloud Scheduler diario · 5:00 AM CDMX |
-| `pipeline_Circuitos` | EL | 🧪 Funcional local, sin deploy | Manual |
+| `pipeline_Circuitos` | EL | ✅ Producción | Cloud Scheduler semanal · 7:00 AM CDMX|
 | `pipeline_CanBus` | EL | 🧊 Pausado · calidad de datos upstream | — |
 | `pipeline_rangofechas_canbus` | EL | 🧊 Pausado · calidad de datos upstream | — |
-| Otros (FlotaVehicular, ReportesOperador) | En desarrollo | 🚧 | — |
+| Otros (`pipeline_Viaje`, `pipeline_ReporteOp`) | En desarrollo | 🚧 | — |
 
 ---
 
@@ -67,7 +67,10 @@ MBDataFlow_ETL/
 ├── scripts/
 │   ├── deploy_desinc.ps1        # build + update job
 │   ├── deploy_job_desinc.ps1    # crear job (one-time)
-│   └── setup_scheduler_desinc.ps1
+│   ├── setup_scheduler_desinc.ps1   
+|   ├── deploy_circuitos.ps1         
+│   ├── deploy_job_circuitos.ps1     
+│   └── setup_scheduler_circuitos.ps1
 ├── docs/
 │   ├── architecture.html        # diagrama visual
 │   └── monitoring.md
@@ -87,7 +90,7 @@ MBDataFlow_ETL/
 
 - Una sola imagen para todos los pipelines.
 - Cada pipeline se ejecuta como `python -m pipelines.X` desde Cloud Run Jobs.
-- Cada pipeline tiene un Cloud Run Job propio: `pipeline-desinc`, `pipeline-canbus`, etc.
+- Cada pipeline tiene un Cloud Run Job propio: `pipeline-desinc`, `pipeline-circ`, etc.
 
 **Razón:** mantenimiento simple (un solo Dockerfile, un solo `requirements.txt`), build cache compartido. Cuando un pipeline necesite stack radicalmente distinto (e.g. uno sin Selenium), se reconsidera.
 
