@@ -117,7 +117,7 @@ class Viaje_Scraper(Extractor):
         # Esperamos a que se despliegue el cuadro de reporte
         iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
         driver.switch_to.frame(iframe)
-        driver.save_screenshot(str(self.download_dir / "step10_Viaje/Viaje_iframe.png"))
+        driver.save_screenshot(str(self.download_dir / "step10_Viaje_iframe.png"))
 
     
     def _request_hourdate_interval(self, driver: webdriver.Chrome, date_i: str, date_f : str,
