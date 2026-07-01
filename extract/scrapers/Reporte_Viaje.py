@@ -1,4 +1,4 @@
-"""Connector for the Intervalos report data source."""
+"""Connector for the Viaje report data source."""
 from __future__ import annotations
 
 import json
@@ -15,25 +15,24 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from config.settings  import SONDA_QUERY_USER, SONDA_QUERY_PASSWORD
 from ..base import Extractor
 
+from config.settings  import (SONDA_QUERY_USER,
+                              SONDA_QUERY_PASSWORD,
+                              RAW_VIAJE_PATH,
+                              )
 
-class Interval_Scraper(Extractor):
+
+class Viaje_Scraper(Extractor):
     """Download and load data for the Reporte_Viaje source."""
 
-    name = "Intervalos"
+    name = "Viaje"
 
     # Constructor sub-method
-    # Prepares the download directory 
+    # Prepares the download directory
     def __init__(self, config_path: Path | None = None) -> None:
-        project_root = Path(__file__).resolve().parent.parent.parent  # ← un .parent más
-        is_serverless = "FUNCTION_TARGET" in os.environ
-        if is_serverless:
-            self.download_dir = Path("/tmp")
-        else:
-            self.download_dir = project_root / "data" / "raw" / "downloads_Intervalos"
-        self.download_dir.mkdir(parents=True, exist_ok=True)  # ← parents=True por si data/raw/ no existe
+        self.download_dir = RAW_VIAJE_PATH
+        self.download_dir.mkdir(parents=True, exist_ok=True)
     
     # Sub-método privado
     # Instanciar Chrome Webdriver mediante Selenium
@@ -207,6 +206,6 @@ class Interval_Scraper(Extractor):
 # Bloque que permite test execution 
 # En prompt invocas python -m extract.scrapers.Reporte_Viaje
 if __name__ == "__main__":
-    scraper = Interval_Scraper()
+    scraper = Viaje_Scraper()
     scraper.run()
     
