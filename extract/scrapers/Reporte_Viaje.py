@@ -38,14 +38,39 @@ class Viaje_Scraper(Extractor):
     # Instanciar Chrome Webdriver mediante Selenium
     def _start_driver(self) -> webdriver.Chrome:
         options = Options()
-        # options.add_argument("--headless")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        prefs = {"download.default_directory": str(self.download_dir)}
-        options.add_experimental_option("prefs", prefs) # Add our default directory 
-        driver = webdriver.Chrome(options=options)
-        driver.set_window_size(1366, 768)  # Standard laptop screen size
+        is_cloud_run = any(k in os.environ for k in ("CLOUD_RUN_JOB", "K_SERVICE", "CLOUD_RUN_EXECUTION"))
+
+        # Common prefs: allow multiple automatic downloads
+        common_prefs = {
+            "profile.default_content_setting_values.automatic_downloads": 1,
+            "profile.default_content_settings.popups": 0,
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+        }
+
+        if is_cloud_run:
+            options.add_argument("--headless=new")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--window-size=1366,768")
+            options.add_experimental_option("prefs", common_prefs)
+            driver = webdriver.Chrome(options=options)
+            # Headless Chrome still needs CDP for the download path itself
+            driver.execute_cdp_cmd(
+                "Page.setDownloadBehavior",
+                {"behavior": "allow", "downloadPath": str(self.download_dir)},
+            )
+        else:
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            prefs = {**common_prefs, "download.default_directory": str(self.download_dir)}
+            options.add_experimental_option("prefs", prefs)
+            driver = webdriver.Chrome(options=options)
+            driver.set_window_size(1366, 768)
+
         return driver
+    
     
     # Sub-método privado
     # Proceso de logeado en la página de Sinoptico
