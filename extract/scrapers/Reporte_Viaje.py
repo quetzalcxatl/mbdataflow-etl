@@ -1,16 +1,11 @@
 """Connector for the Viaje report data source."""
 from __future__ import annotations
 
-import json
 import os
-from datetime import datetime
 from pathlib import Path
-from typing import List
 
-import pandas as pd
 import time
 from selenium import webdriver
-from selenium.webdriver import ActionChains
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -184,23 +179,11 @@ class Viaje_Scraper(Extractor):
 
     def scrape(self) -> None:
         """Scrape data from the Sonda PV"""
-        now = datetime.now()
-        date_str  = now.strftime("%d%m%Y")
-        date_str_ = now.strftime("%d%m%y")
+        from utils.dates import last_completed_week_cdmx
+        monday, sunday = last_completed_week_cdmx()
 
-        # Calcular intervalo de semana vencida
-        from datetime import date, timedelta
-        # Calcular el lunes de la semana actual
-        lunes_actual = now - timedelta(days=now.weekday())  # weekday(): lunes=0, domingo=6
-        inicio_semana_vencida = lunes_actual - timedelta(days=7)
-        fin_semana_vencida = inicio_semana_vencida + timedelta(days=6)
-
-        # Mostrar resultados (opcional)
-        print("Fecha actual:", now.strftime("%d/%m/%Y"))
-        
-
-        fecha_i = inicio_semana_vencida.strftime("%d%m%Y")
-        fecha_f = fin_semana_vencida.strftime("%d%m%Y")
+        fecha_i = monday.strftime('...')        #format to confirm
+        fecha_f = sunday.strftime('...')        #format to confirm
         hora_i = "000000"
         hora_f = "235959"
 
