@@ -119,36 +119,44 @@ class Viaje_Scraper(Extractor):
         driver.switch_to.frame(iframe)
         driver.save_screenshot(str(self.download_dir / "step10_Viaje_iframe.png"))
 
-    
-    def _request_hourdate_interval(self, driver: webdriver.Chrome, date_i: str, date_f : str,
-                                    hour_i: str, hour_f: str) -> Path:
+    def _set_ng_date(self, driver: webdriver.Chrome, css_selector: str, d) -> None:
+        """Inyecta un Date real al ng-model del datepicker, saltando vista y $parser.
+        d: datetime.date. El Date se construye desde partes locales para evitar
+        el corrimiento UTC del Chrome headless en Cloud Run."""
+        landed = driver.execute_script("""
+            const el = document.querySelector(arguments[0]);
+            if (!el) return '__NO_INPUT__';
+            const y = arguments[1], m = arguments[2], day = arguments[3];
+            const dateObj = new Date(y, m - 1, day, 0, 0, 0, 0);   // partes locales, NO ISO string
+            const ngEl  = angular.element(el);
+            const scope = ngEl.scope();
+            const expr  = el.getAttribute('ng-model');             // 'filtro.dataInicial'
+            ngEl.injector().get('$parse')(expr).assign(scope, dateObj);
+            scope.$apply();
+            return el.value;                                       // valor renderizado tras el digest
+        """, css_selector, d.year, d.month, d.day)
+        expected = d.strftime("%d/%m/%Y")
+        if landed != expected:
+            raise RuntimeError(f"ng-model no aceptó la fecha: esperaba {expected!r}, quedó {landed!r}")
+
+
+    def _request_hourdate_interval(self, driver, date_i, date_f, hour_i, hour_f) -> None:
         wait = WebDriverWait(driver, 15)
-        i_date_input = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[ng-model='filtro.dataInicial']"))
-        )
-        i_date_input.clear()
-        time.sleep(3)
-        i_date_input.send_keys(date_i)
+        wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "input[ng-model='filtro.dataInicial']")))
 
-        i_hour_input = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[ng-model='filtro.horaInicial']"))
-        )
-        i_hour_input.clear()
-        i_hour_input.send_keys(hour_i)
-        
-        f_date_input = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[ng-model='filtro.dataFinal']"))
-        )
-        f_date_input.clear()
-        time.sleep(3)
-        f_date_input.send_keys(date_f)
+        # 1) Fechas PRIMERO (inyección al modelo; send_keys revierte a hoy)
+        self._set_ng_date(driver, "input[ng-model='filtro.dataInicial']", date_i)
+        self._set_ng_date(driver, "input[ng-model='filtro.dataFinal']",   date_f)
 
-        f_hour_input = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[ng-model='filtro.horaFinal']"))
-        )
-        f_hour_input.clear()
-        f_hour_input.send_keys(hour_f)
-        time.sleep(4)
+        # 2) Horas AL FINAL (el campo sí acepta texto)
+        i_hour = driver.find_element(By.CSS_SELECTOR, "input[ng-model='filtro.horaInicial']")
+        i_hour.clear(); i_hour.send_keys(hour_i)
+        f_hour = driver.find_element(By.CSS_SELECTOR, "input[ng-model='filtro.horaFinal']")
+        f_hour.clear(); f_hour.send_keys(hour_f)
+        driver.save_screenshot(str(self.download_dir / "step11_hourdate_interval.png"))
+
+
 
         # Checkpoint: Implementar el hecho de que debemos clickear dos veces GENERAR REPORTE
         # Esperar a que aparezca la ventana emergente y seleccionar .csv y descargar
@@ -182,19 +190,17 @@ class Viaje_Scraper(Extractor):
         from utils.dates import last_completed_week_cdmx
         monday, sunday = last_completed_week_cdmx()
 
-        fecha_i = monday.strftime('...')        #format to confirm
-        fecha_f = sunday.strftime('...')        #format to confirm
         hora_i = "000000"
         hora_f = "235959"
 
-        print("Inicio de semana vencida:", fecha_i)
-        print("Fin de semana vencida:", fecha_f)
+        print("Inicio de semana vencida:", monday)
+        print("Fin de semana vencida:", sunday)
 
         driver = self._start_driver()
         try:
             self._login(driver)
             self._navigate_to_report(driver)
-            self._request_hourdate_interval(driver, fecha_i, fecha_f, hora_i, hora_f)
+            self._request_hourdate_interval(driver, monday, sunday, hora_i, hora_f)
             #self._navigate_to_downloads(driver)
             #self._download(driver, date_str_)
 
@@ -203,11 +209,6 @@ class Viaje_Scraper(Extractor):
         finally:
             driver.quit()
         
-        '''loader = CAN_load_to_drive(
-            download_dir=self.download_dir,
-            parent_folder_id=self.parent_folder_id,
-        )
-        file_id = loader.run()'''
 
         return None
     
