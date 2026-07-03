@@ -73,25 +73,25 @@ class Viaje_Scraper(Extractor):
         driver.get("https://cdmx.sinopticoplus.com/#/")
         wait = WebDriverWait(driver, 60)  # Increased timeout espera a que cargue
         # Always save a screenshot after loading
-        driver.save_screenshot(str(self.download_dir / "step1_loaded.png"))
+        #driver.save_screenshot(str(self.download_dir / "step1_loaded.png"))
         # Save page source for debugging
         with open(self.download_dir / "step1_source.html", "w", encoding="utf-8") as f:
             f.write(driver.page_source)
         try:
             # Wait for the login form to be present
             username_input = wait.until(EC.presence_of_element_located((By.NAME, "login")))
-            driver.save_screenshot(str(self.download_dir / "step2_username_found.png"))
+            #driver.save_screenshot(str(self.download_dir / "step2_username_found.png"))
             password_input = wait.until(EC.presence_of_element_located((By.NAME, "password")))
-            driver.save_screenshot(str(self.download_dir / "step3_password_found.png"))
+            #driver.save_screenshot(str(self.download_dir / "step3_password_found.png"))
             username_input.send_keys(SONDA_QUERY_USER) # Credentials
             password_input.send_keys(SONDA_QUERY_PASSWORD)
-            driver.save_screenshot(str(self.download_dir / "step4_credentials_entered.png"))
+            #driver.save_screenshot(str(self.download_dir / "step4_credentials_entered.png"))
             login_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
-            driver.save_screenshot(str(self.download_dir / "step5_before_click.png"))
+            #driver.save_screenshot(str(self.download_dir / "step5_before_click.png"))
             login_btn.click()
-            driver.save_screenshot(str(self.download_dir / "step6_after_click.png"))
+            #driver.save_screenshot(str(self.download_dir / "step6_after_click.png"))
         except Exception as e:
-            driver.save_screenshot(str(self.download_dir / "login_error.png"))
+            #driver.save_screenshot(str(self.download_dir / "login_error.png"))
             with open(self.download_dir / "login_error_source.html", "w", encoding="utf-8") as f:
                 f.write(driver.page_source)
             raise RuntimeError(
@@ -156,15 +156,50 @@ class Viaje_Scraper(Extractor):
         f_hour.clear(); f_hour.send_keys(hour_f)
         driver.save_screenshot(str(self.download_dir / "step11_hourdate_interval.png"))
 
+        # Solicitar descarga
+        wait.until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "button.btn.btn-new.verde-btn.ng-binding[data-target='#container-Central-Arquivo']")
+            )
+        ).click()
+        time.sleep(5)
+        driver.save_screenshot(str(self.download_dir / "step12_generate_buttom_clicked.png")) 
 
+        # Pop-up window pidiendo formato de archivo a descargar
+        csv_option = wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="radioButtons"]/div/label[2]')))
+        driver.save_screenshot(str(self.download_dir / "step13_csv_buttom_visible.png"))
+        driver.execute_script("arguments[0].click();", csv_option)
+        driver.save_screenshot(str(self.download_dir / "step14_csv_buttom_clicked.png"))
 
-        # Checkpoint: Implementar el hecho de que debemos clickear dos veces GENERAR REPORTE
-        # Esperar a que aparezca la ventana emergente y seleccionar .csv y descargar
-        # La descarga no es inmediata. Posterior a esto, debemos dirigirnos a centro de descargas
-        # de reportes de viaje y clickear en consultar
+        # Click para meter la request
+        guardar_buttom = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'button.btn.btn-new.verde-btn.ng-binding[validate-form][data-dismiss="modal"]')))
+        driver.save_screenshot(str(self.download_dir / "step13_guardar_buttom_visible.png"))
+        driver.execute_script("arguments[0].click();", guardar_buttom)
+        driver.save_screenshot(str(self.download_dir / "step14_guardar_buttom_clicked.png"))
+
+        driver.switch_to.default_content()
 
         return None
-    
+    #------------------------------------------------------------------------------------------------------------------------
+
+    # Query dashboard and download report
+    def _navigate_to_downloads(self, driver: webdriver.Chrome) -> None:
+        wait = WebDriverWait(driver, 20)
+        # Click the sidebar icon using JavaScript
+        sidebar_icon = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "img[src='img/fa-list.png']")))
+        driver.execute_script("arguments[0].click();", sidebar_icon)
+        # Navigate to the download dashboard
+        report_dashboard=wait.until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//*[@id='navbar-fixed-left']/ul/li[9]/ul/li/ul/li[1]/a[1]")))
+        driver.execute_script("arguments[0].click();", report_dashboard)
+
+        iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
+        driver.switch_to.frame(iframe)
+        driver.save_screenshot(str(self.download_dir / "step14_download_dashboard.png"))
+
+        return None
+
     #------------------------------------------------------------------------------------------------------------------------
 
     # Make logout of Sonda platform
@@ -201,7 +236,7 @@ class Viaje_Scraper(Extractor):
             self._login(driver)
             self._navigate_to_report(driver)
             self._request_hourdate_interval(driver, monday, sunday, hora_i, hora_f)
-            #self._navigate_to_downloads(driver)
+            self._navigate_to_downloads(driver)
             #self._download(driver, date_str_)
 
             time.sleep(1)
