@@ -5,12 +5,14 @@ import os
 from pathlib import Path
 
 import time
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from ..base import Extractor
+from ..helpers.download_helper import get_latest_row_status
 
 from config.settings  import (SONDA_QUERY_USER,
                               SONDA_QUERY_PASSWORD,
@@ -199,6 +201,107 @@ class Viaje_Scraper(Extractor):
         driver.save_screenshot(str(self.download_dir / "step14_download_dashboard.png"))
 
         return None
+    
+    #------------------------------------------------------------------------------------------------------------------------
+
+    # Download method
+    def _download(self, driver: webdriver.Chrome, date_i: str, date_f: str)-> Path:
+        wait = WebDriverWait(driver, 20)
+
+        def click_query_button():
+            """Re-locates and clicks the query button fresh each time to avoid stale references."""
+            btn = wait.until(EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "button[type=submit]")
+            ))
+            driver.execute_script("arguments[0].click();", btn)
+
+        # --- Trigger the first query to populate the table ---
+        click_query_button()
+        #time.sleep(5)
+        driver.save_screenshot(str(self.download_dir / "step15_request.png"))
+
+        # --- Wait for the table to appear ---
+        wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "table#example.table.responsive.tPainelEventos")
+        ))
+        driver.save_screenshot(str(self.download_dir / "step16_table_visible.png"))
+        time.sleep(1)  # Let Angular finish rendering ng-repeat rows
+
+        # --- Poll until the latest row status is COMPLETO ---
+        while True:
+            result = get_latest_row_status(driver, wait)
+            status = result['status']
+
+            if (status == 'COMPLETO'):
+                print(f"[STATUS] {status}")
+                # --- Find and click the download link on the latest row ---
+                #time.sleep(5)
+                # Part where we reach the download link button...
+                rows = driver.find_elements(By.CSS_SELECTOR, "table.tPainelEventos tbody tr")
+
+                latest_row = rows[result['latest_row_index']]
+                latest_date = datetime.strptime(result['latest_date'], "%d/%m/%Y %H:%M:%S")
+
+                existing = set(self.download_dir.glob("*")) # Snapshot antes de la descarga 
+                # Click the "Descargar Reporte" link inside the latest row
+                download_link = latest_row.find_element(By.CSS_SELECTOR, "a.btn-links")
+                driver.execute_script("arguments[0].click();", download_link) # Acciona la descarga
+                print(f"[DOWNLOAD] Triggered download for CAN-DATA dated {latest_date.strftime('%d/%m/%Y %H:%M:%S')}")
+                driver.save_screenshot(str(self.download_dir / "step15_(a)_download_succesfull.png")) 
+                
+                # --- Poll until a real .csv appears (no partials) ---
+                timeout = 120
+                interval = 1
+                elapsed = 0
+
+                while elapsed < timeout:
+                    current_files = set(self.download_dir.glob("*"))
+                    new_files = current_files - existing
+
+                    has_partial = any(f.suffix in ('.crdownload', '.tmp') for f in new_files)
+                    real_csvs = [f for f in new_files if f.suffix == '.csv']
+
+                    if real_csvs and not has_partial:
+                        new_file = real_csvs[0]
+                        break
+
+                    time.sleep(interval)
+                    elapsed += interval
+                else:
+                    raise TimeoutError(f"Download did not complete within {timeout} seconds.")
+
+                # --- Size stabilization: wait until file stops growing ---
+                previous_size = -1
+                while True:
+                    current_size = new_file.stat().st_size
+                    if current_size == previous_size and current_size > 0:
+                        break
+                    previous_size = current_size
+                    time.sleep(0.5)
+
+                # --- Rename directly, no second file ---
+                target = self.download_dir / f"Viaje-{date_i}_{date_f}.csv"
+                if target.exists():
+                    target.unlink()
+                new_file.rename(target)
+                return target
+
+            elif status in ('EN PROGRESO', 'ESPERANDO INICIO'):
+                print(f"[STATUS] {status}")
+                # Report is still being generated — wait and re-trigger the table refresh
+                time.sleep(5)
+                click_query_button()  # Re-locates the button fresh — avoids stale reference
+                # Wait for the table to re-render before checking again
+                wait.until(EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "table#example.table.responsive.tPainelEventos")
+                ))
+            
+            else:
+                print(f"[STATUS] {status}")
+                # If not COMPLETO and (EN PROGRESO or ESPERANDO INICIO), so the STATUS must be ERROR...
+                print("[STATUS = ERROR] Error en la solicitud de reporte")
+                break
+    
 
     #------------------------------------------------------------------------------------------------------------------------
 
@@ -237,7 +340,7 @@ class Viaje_Scraper(Extractor):
             self._navigate_to_report(driver)
             self._request_hourdate_interval(driver, monday, sunday, hora_i, hora_f)
             self._navigate_to_downloads(driver)
-            #self._download(driver, date_str_)
+            self._download(driver, monday, sunday)
 
             time.sleep(1)
             self._logout(driver)
