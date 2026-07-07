@@ -207,18 +207,23 @@ Cuando lleguemos a 3-4 pipelines en producción, conviene revisar acumulación d
 
 ## 9. Roadmap
 
+### Overview
+- El objetivo es implementar un pipeline que alimente el Dashboard de Intervalos y ciertos directorios/bases remotos.
+
+- Para la implementación del pipeline de Intervalos `pipeline_Intervalos` (que emplea el reporte de Viaje), es necesario migrar rutas útiles de código de scripts en Colab. El proceso consta de diferentes métodos: Extract sobre la plataforma de Sonda :arrow_right: Load crudo a un directorio centralizado (sustituyendo ambos directorios de GO y de CC) :arrow_right: Transform del RV mediante los métodos migrados de Colab :arrow_right: Load hacia dos tablas distintas de BigQuery (INTERVALOS_Y_CUMPLIMIENTO, VIAJE).
+
+Una posible redundancia del proceso yace en que implementamos dos métodos de Load del reporte de Viaje en "crudo". El primero hacia Drive, antes del transform y el segundo (hacia BQ) durante el Transform hacia la tabla de VIAJE. Temporalmente se toma la decisión de dejar comentada la actualización de datos en la tabla VIAJE.
+
 ### Inmediato
-- Observar 1-2 semanas de operación real de `pipeline_Desinc`. Detectar edge cases (feriados, ventanas de mantenimiento de Sonda, cambios de horario verano/invierno).
-- Deploy de `pipeline_Circuitos` a Cloud Run Job. Patrón replicado de Desinc: mismos secretos de Sonda, nuevos folder IDs de Drive (`DRIVE_CIRC_DESGLOSADO_FOLDER_ID`, `DRIVE_CIRC_EJECUTIVO_FOLDER_ID`), cron semanal lunes 7:00 AM CDMX. Pendiente: scripts de deploy, primera ejecución manual validada, alert policy en Cloud Monitoring.
+- Se completa el método Extract de reportes de Viaje. El scraper `Reporte_Viaje`. 
+- Se implementa el proceso Load, hacia directorio centralizado MBDataFlow_ETL Drive.
 
 ### Próximo
-- Siguiente pipeline en cola (FlotaVehicular o ReportesOperador, según prioridad). Lo que se reutiliza del patrón Desinc/Circuitos: Dockerfile, SA, cloudbuild.yaml, esquema general de scripts de deploy. Lo que típicamente cambia: paths con `_runtime_path()`, folder IDs, frecuencia del cron, secretos si la fuente difiere.
-- Retomar `pipeline_CanBus` y `pipeline_rangofechas_canbus` cuando se resuelvan los problemas de calidad de datos upstream que motivaron la pausa.
+- Se implementa el método Transform, que consiste en la migración, limpieza e implementación estructurada de código de notebooks en colab.
 
 ### A mediano plazo
-- Tests automatizados de los loaders (mockeable contra Drive sin red).
-- BigQuery loader (un pipeline lo necesita para CanBus o telemetría).
-- Lifecycle policy en Artifact Registry para limpiar imágenes >30 días.
+- Se implementa el método Load a tablas 'INTERVALOS_Y_CUMPLIMIENTO' y 'VIAJE' de BigQuery. 
+- Construcción del orquestador `pipeline_Intervalos`.
 
 ### Pospuesto
 - CI con GitHub Actions o Cloud Build triggers — revisar cuando haya tests o autorización institucional.
