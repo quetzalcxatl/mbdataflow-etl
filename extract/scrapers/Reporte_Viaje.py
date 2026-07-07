@@ -205,7 +205,7 @@ class Viaje_Scraper(Extractor):
     #------------------------------------------------------------------------------------------------------------------------
 
     # Download method
-    def _download(self, driver: webdriver.Chrome, date_i: str, date_f: str)-> Path:
+    def _download(self, driver: webdriver.Chrome, date_name: str)-> Path:
         wait = WebDriverWait(driver, 20)
 
         def click_query_button():
@@ -280,7 +280,7 @@ class Viaje_Scraper(Extractor):
                     time.sleep(0.5)
 
                 # --- Rename directly, no second file ---
-                target = self.download_dir / f"Viaje-{date_i}_{date_f}.csv"
+                target = self.download_dir / f"RV_{date_name}.csv"
                 if target.exists():
                     target.unlink()
                 new_file.rename(target)
@@ -300,7 +300,7 @@ class Viaje_Scraper(Extractor):
                 print(f"[STATUS] {status}")
                 # If not COMPLETO and (EN PROGRESO or ESPERANDO INICIO), so the STATUS must be ERROR...
                 print("[STATUS = ERROR] Error en la solicitud de reporte")
-                break
+                raise RuntimeError(f"Reporte de fallo en Sonda con status: {status}!")
     
 
     #------------------------------------------------------------------------------------------------------------------------
@@ -327,6 +327,7 @@ class Viaje_Scraper(Extractor):
         """Scrape data from the Sonda PV"""
         from utils.dates import last_completed_week_cdmx
         monday, sunday = last_completed_week_cdmx()
+        name_date  = f"{monday.strftime('%d%m%y')}_{sunday.strftime('%d%m%y')}"
 
         hora_i = "000000"
         hora_f = "235959"
@@ -340,15 +341,14 @@ class Viaje_Scraper(Extractor):
             self._navigate_to_report(driver)
             self._request_hourdate_interval(driver, monday, sunday, hora_i, hora_f)
             self._navigate_to_downloads(driver)
-            self._download(driver, monday, sunday)
+            target_path = self._download(driver, name_date)
 
             time.sleep(1)
             self._logout(driver)
         finally:
             driver.quit()
-        
 
-        return None
+        return target_path
     
 # Bloque que permite test execution 
 # En prompt invocas python -m extract.scrapers.Reporte_Viaje
