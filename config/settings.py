@@ -54,6 +54,7 @@ DRIVE_DESINC_FOLDER_ID            = os.environ.get("DRIVE_DESINC_FOLDER_ID")
 DRIVE_REPORTES_OPERADOR_FOLDER_ID = os.environ.get("DRIVE_REPORTES_OPERADOR_FOLDER_ID")
 DRIVE_CIRC_DESGLOSADO_FOLDER_ID   = os.environ.get("DRIVE_CIRC_DESGLOSADO_FOLDER_ID")
 DRIVE_CIRC_EJECUTIVO_FOLDER_ID    = os.environ.get("DRIVE_CIRC_EJECUTIVO_FOLDER_ID")
+DRIVE_VIAJE_FOLDER_ID                = os.environ.get("DRIVE_RV_FOLDER_ID")
 
 # --- CanBus multiple folders ------------------------------------
 CANDATA_DRIVE_PROCESSED_FOLDERS = {
@@ -67,14 +68,14 @@ CANDATA_DRIVE_PROCESSED_FOLDERS = {
 
 # --- Local filesystem paths (derived from project root) ----------
 # Cloud Run override happens at the scraper level (PR 1.3)
-RAW_DESINC_PATH = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Desincorporaciones")
+RAW_DESINC_PATH            = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Desincorporaciones")
 RAW_CANBUS_PATH            = PROJECT_ROOT / "data" / "raw" / "downloads_CanBus"
 PROCESSED_CANBUS_PATH      = PROJECT_ROOT / "data" / "processed" / "processed_CanBus"
 RAW_REPORTES_OPERADOR_PATH = PROJECT_ROOT / "data" / "raw" / "downloads_Reporte_Operadores"
 RAW_CIRCUITOS_PATH         = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Circuitos")
 RAW_FLOTAV_PATH            = PROJECT_ROOT / "data" / "raw" / "downloads_Flota_Vehicular"
 PROCESSED_FLOTAV_PATH      = PROJECT_ROOT / "data" / "processed" / "processed_Flota_Vehicular"
-RAW_VIAJE_PATH = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Viaje")
+RAW_VIAJE_PATH             = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Viaje")
 
 
 # Static configuration (not environment-dependent) ---------------
