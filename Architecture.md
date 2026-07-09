@@ -246,6 +246,6 @@ Una posible redundancia del proceso yace en que implementamos dos métodos de Lo
 
 ---
 
-## 11. Cómo extender este documento
+## 11. Cómo se extiende/actualiza este documento
 
-Cuando tomes una decisión arquitectónica nueva (estructura, dependencia, patrón), agrégala como subsección de §5 con: **qué decidiste, por qué, y cuándo reconsiderarla**. Este formato fuerza honestidad sobre los trade-offs.
+Cuando se tome una decisión arquitectónica nueva (estructura, dependencia, patrón), se agrega como subsección de §5 con: **qué se decide, por qué, y cuándo reconsiderar**. De esta manera aseguramos tener honestidad sobre lo **trade-offs** o **decisiones**.
