@@ -191,7 +191,21 @@ def _filter_outliers_isolation_forest(
         model = IsolationForest(contamination=contamination, random_state=42)
         pred = model.fit_predict(num)
         kept.append(grp[pred == 1])  # inliers
-    return pd.concat(kept) if kept else interval_df.iloc[0:0]
+
+    result = pd.concat(kept) if kept else interval_df.iloc[0:0]
+
+    input_rows = len(interval_df)
+    output_rows = len(result)
+    if input_rows > 0 and output_rows / input_rows < 0.5:
+        import warnings
+        warnings.warn(
+            f"IsolationForest recortó {input_rows - output_rows}/{input_rows} filas "
+            f"({(1 - output_rows/input_rows)*100:.1f}%). "
+            f"Con contamination={ISOLATION_FOREST_CONTAMINATION} se esperaba ~1%. "
+            f"Revisar si la semana tuvo operación anómala o si el modelo se comportó raro.",
+            RuntimeWarning,
+        )
+    return result
 
 
 def transform_intervalos(df_raw: pd.DataFrame) -> pd.DataFrame:
@@ -289,11 +303,27 @@ def transform(raw_csv: Path) -> tuple[Path, Path]:
         (viaje_path, intervalos_path) — paths absolutos de los CSV escritos
         en PROCESSED_VIAJE_PATH/VIAJE/ y PROCESSED_VIAJE_PATH/INTERVALOS_Y_CUMPLIMIENTOS/.
     """
-    df_raw = pd.read_csv(raw_csv, encoding="latin1", sep=";")
+    if not raw_csv.exists():
+        raise FileNotFoundError(f"Transform: No existe el CSV crudo: {raw_csv}")
+    if raw_csv.stat().st_size == 0:
+        raise RuntimeError(f"Transform: el CSV crudo está vacío: {raw_csv}")
+    
+    df_raw = pd.read_csv(raw_csv, encoding="latin1", sep=";", low_memory=False)
 
     df_viajes = transform_viajes(df_raw)
-    df_intervalos = transform_intervalos(df_raw)
+    if len(df_viajes) == 0:
+        raise RuntimeError(
+            f"Transform: rama VIAJE produjo 0 filas a partir de {raw_csv.name}. "
+            f"Input tenía {len(df_raw)} filas crudas. Posible falla upstream o schema drift."
+        )
 
+    df_intervalos = transform_intervalos(df_raw)
+    if len(df_intervalos) == 0:
+        raise RuntimeError(
+            f"Transform: rama INTERVALOS_Y_CUMPLIMIENTOS produjo 0 filas a partir de {raw_csv.name}. "
+            f"Input tenía {len(df_raw)} filas crudas. Posible falla upstream o schema drift."
+        )
+    
     viaje_out, intervalos_out = _derive_output_paths(raw_csv)
     return (
         _write_csv(df_viajes, viaje_out),
