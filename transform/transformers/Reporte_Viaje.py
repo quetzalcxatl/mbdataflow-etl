@@ -40,9 +40,6 @@ from config.settings import (
 SUBFOLDER_VIAJES = "VIAJE"
 SUBFOLDER_INTERVALOS = "INTERVALOS_Y_CUMPLIMIENTOS"
 
-CSV_GLOB = "VIA*.csv"
-CSV_READ_KWARGS = dict(encoding="latin", sep=";")
-
 
 # [DECISIÓN] Filtrado por IsolationForest en la rama de intervalos.
 #   True  = reproduce producción (conserva ~99% inliers, descarta ~1%).
@@ -108,13 +105,26 @@ def _diff_str_to_minutes(series: pd.Series, invert_sign: bool) -> np.ndarray:
         return np.where(starts_neg, minutes, -minutes)
     return np.where(starts_neg, -minutes, minutes)
 
+def _derive_output_paths(raw_csv: Path) -> tuple[Path, Path]:
+    """
+    Deriva los paths de salida a partir del stem del raw.
 
-def _read_concat(raw_dir: str) -> pd.DataFrame:
-    files = sorted(glob.glob(os.path.join(raw_dir, CSV_GLOB)))
-    if not files:
-        raise FileNotFoundError(f"No se encontraron CSV '{CSV_GLOB}' en {raw_dir}")
-    frames = [pd.read_csv(f, **CSV_READ_KWARGS) for f in files]
-    return pd.concat(frames, ignore_index=True)
+    Ejemplo:
+        raw_csv = RAW_VIAJE_PATH / "RV_300626_060726.csv"
+        stem    = "RV_300626_060726"
+        suffix  = "300626_060726"   (sin el prefijo RV_)
+
+        viaje_out       = PROCESSED_VIAJE_PATH / "VIAJE" / "VIAJE_300626_060726.csv"
+        intervalos_out  = PROCESSED_VIAJE_PATH / "INTERVALOS_Y_CUMPLIMIENTOS" /
+                          "INTERVALOS_Y_CUMPLIMIENTOS_300626_060726.csv"
+    """
+    stem = raw_csv.stem                          # "RV_300626_060726"
+    suffix = stem.removeprefix("RV_")            # "300626_060726"
+    viaje_out = PROCESSED_VIAJE_PATH / SUBFOLDER_VIAJES / f"{SUBFOLDER_VIAJES}_{suffix}.csv"
+    intervalos_out = (
+        PROCESSED_VIAJE_PATH / SUBFOLDER_INTERVALOS / f"{SUBFOLDER_INTERVALOS}_{suffix}.csv"
+    )
+    return viaje_out, intervalos_out
 
 
 # --------------------------------------------------------------------------
@@ -261,40 +271,43 @@ def transform_intervalos(df_raw: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
-def _write_csv(df: pd.DataFrame, base: str, subfolder: str, filename: str) -> str:
-    out_dir = Path(base) / subfolder
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / filename
-    df.to_csv(path, index=False)
-    return str(path)
+def _write_csv(df: pd.DataFrame, out_path: Path) -> Path:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out_path, index=False)
+    return out_path
 
 
-def transform(
-    raw_dir: str = RAW_VIAJE_PATH,
-    processed_base: str = PROCESSED_VIAJE_PATH,
-    filename: str = "part-000.csv",
-) -> dict[str, str]:
+def transform(raw_csv: Path) -> tuple[Path, Path]:
     """
-    Lee los CSV crudos, aplica ambas ramas y escribe dos CSV.
+    Transforma el CSV crudo de Viaje en dos CSV procesados.
 
-    Devuelve: {"VIAJE": <path>, "INTERVALOS_Y_CUMPLIMIENTOS": <path>}
+    Args:
+        raw_csv: Path al CSV crudo que produjo Extract
+                 (ej. RAW_VIAJE_PATH/RV_300626_060726.csv).
 
-    Nota: `filename` es estable por defecto; si el pipeline corre por lotes,
-    pásale un identificador de corrida (fecha / run_id) para no sobrescribir.
+    Returns:
+        (viaje_path, intervalos_path) — paths absolutos de los CSV escritos
+        en PROCESSED_VIAJE_PATH/VIAJE/ y PROCESSED_VIAJE_PATH/INTERVALOS_Y_CUMPLIMIENTOS/.
     """
-    df_raw = _read_concat(raw_dir)
+    df_raw = pd.read_csv(raw_csv, encoding="latin1", sep=";")
 
     df_viajes = transform_viajes(df_raw)
     df_intervalos = transform_intervalos(df_raw)
 
-    return {
-        SUBFOLDER_VIAJES: _write_csv(df_viajes, processed_base, SUBFOLDER_VIAJES, filename),
-        SUBFOLDER_INTERVALOS: _write_csv(
-            df_intervalos, processed_base, SUBFOLDER_INTERVALOS, filename
-        ),
-    }
+    viaje_out, intervalos_out = _derive_output_paths(raw_csv)
+    return (
+        _write_csv(df_viajes, viaje_out),
+        _write_csv(df_intervalos, intervalos_out),
+    )
 
 
 if __name__ == "__main__":
-    for table, p in transform().items():
-        print(f"{table}: {p}")
+    import glob, os
+    matches = glob.glob(str(RAW_VIAJE_PATH / "RV_*.csv"))
+    if not matches:
+        raise SystemExit(f"No hay CSV RV_*.csv en {RAW_VIAJE_PATH}")
+    latest = Path(max(matches, key=os.path.getmtime))
+    print(f"[test manual] procesando: {latest.name}")
+    viaje_path, intervalos_path = transform(latest)
+    print(f"VIAJE:                     {viaje_path}")
+    print(f"INTERVALOS_Y_CUMPLIMIENTOS: {intervalos_path}")
