@@ -246,7 +246,7 @@ class Viaje_Scraper(Extractor):
                 # Click the "Descargar Reporte" link inside the latest row
                 download_link = latest_row.find_element(By.CSS_SELECTOR, "a.btn-links")
                 driver.execute_script("arguments[0].click();", download_link) # Acciona la descarga
-                print(f"[DOWNLOAD] Triggered download for CAN-DATA dated {latest_date.strftime('%d/%m/%Y %H:%M:%S')}")
+                print(f"[DOWNLOAD] Triggered download for Viaje Report dated {latest_date.strftime('%d/%m/%Y %H:%M:%S')}")
                 driver.save_screenshot(str(self.download_dir / "step15_(a)_download_succesfull.png")) 
                 
                 # --- Poll until a real .csv appears (no partials) ---
