@@ -113,7 +113,7 @@ class BigQueryLoader:
     def _validate_date_range(self) -> None:
         """
         Verifica que las fechas del CSV caigan dentro del rango declarado.
-
+        
         CRÍTICO. Sin esta guarda, si el scraper bajó una semana equivocada, el
         DELETE borraría el rango correcto y el INSERT metería otro: la tabla
         histórica quedaría con un hueco permanente y datos duplicados en otra
