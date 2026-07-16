@@ -289,7 +289,7 @@ class Viaje_Scraper(Extractor):
             elif status in ('EN PROGRESO', 'ESPERANDO INICIO'):
                 print(f"[STATUS] {status}")
                 # Report is still being generated — wait and re-trigger the table refresh
-                time.sleep(5)
+                time.sleep(10)
                 click_query_button()  # Re-locates the button fresh — avoids stale reference
                 # Wait for the table to re-render before checking again
                 wait.until(EC.presence_of_element_located(
