@@ -140,8 +140,10 @@ def transform_viajes(df_raw: pd.DataFrame) -> pd.DataFrame:
       - Las columnas DIFF_* se conservan como STRING crudo, sin convertir a minutos.
     """
     df = df_raw.rename(columns=VIAJES_RENAME).copy()
-
     df["FECHA"] = pd.to_datetime(df["FECHA"], format="%d/%m/%Y", errors="coerce")
+    mask_valida = df["FECHA"].notna()
+    df["FECHA"] = df["FECHA"].dt.strftime("%Y-%m-%d %H:%M:%S")
+    df.loc[~mask_valida, "FECHA"] = None   # NaT -> NULL, no el string "NaT"
     df["ECONOMICO_PLANIFICADO"] = (
         pd.to_numeric(df["ECONOMICO_PLANIFICADO"], errors="coerce").fillna(0).astype(int)
     )
