@@ -57,14 +57,14 @@ VIAJE_DUMMY = f"{PROJECT}.{DATASET_PRUEBAS}.VIAJES_smoketest"
 INTERVALOS_DUMMY = f"{PROJECT}.{DATASET_PRUEBAS}.INTERVALOS_Y_CUMPLIMIENTOS_smoketest"
 
 # CSVs frescos de scrape+transform. Cambia a tus paths reales.
-VIAJE_CSV = Path("data/processed/processed_Viaje/VIAJE/VIAJE_290626_050726.csv")
+VIAJE_CSV = Path("data/processed/processed_Viaje/VIAJE/VIAJE_060726_120726.csv")
 INTERVALOS_CSV = Path(
     "data/processed/processed_Viaje/INTERVALOS_Y_CUMPLIMIENTOS/"
-    "INTERVALOS_Y_CUMPLIMIENTOS_290626_050726.csv"
+    "INTERVALOS_Y_CUMPLIMIENTOS_060726_120726.csv"
 )
 
 # Rango de la semana que contienen esos CSVs (lunes, domingo).
-WEEK_RANGE = (date(2026, 6, 29), date(2026, 7, 5))
+WEEK_RANGE = (date(2026, 6, 6), date(2026, 7, 12))
 
 
 # ==========================================================================
