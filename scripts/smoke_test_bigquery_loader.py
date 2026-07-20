@@ -64,7 +64,7 @@ INTERVALOS_CSV = Path(
 )
 
 # Rango de la semana que contienen esos CSVs (lunes, domingo).
-WEEK_RANGE = (date(2026, 6, 6), date(2026, 7, 12))
+WEEK_RANGE = (date(2026, 7, 6), date(2026, 7, 12))
 
 
 # ==========================================================================
