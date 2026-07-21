@@ -14,3 +14,8 @@ Por qué: El CSV de la tabla VIAJE tiene un error de serialización en el format
 Cómo: Endosando la reponsabilidad el método Transform: transform/transformers/Reporte_Viaje.py
 Descartado: Endosar la responsabilidad en el método Load, sale de su función. 
  
+ ## 21-07-2026 - Eliminación de carga a Drive (pipeline Intervalos)
+Decisión: Se decide eliminar la rama que carga los CSV crudos de Sonda al directorio centralizado (End) de pipelines en Drive.
+Por qué: En conjunto es una decisión de PM. Dado que ya existe una tabla histórico en BigQuery.
+Cómo: Dejando fuera del orquestador del pipeline el paso específico que invoca Viaje_drive_loader.py
+Descartado: Incluirlo por debajo de las indicaciones del PM. La desición debe ser respetada, pese a quedarnos sin un backup.
