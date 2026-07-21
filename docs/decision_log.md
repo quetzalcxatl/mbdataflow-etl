@@ -19,3 +19,9 @@ Decisión: Se decide eliminar la rama que carga los CSV crudos de Sonda al direc
 Por qué: En conjunto es una decisión de PM. Dado que ya existe una tabla histórico en BigQuery.
 Cómo: Dejando fuera del orquestador del pipeline el paso específico que invoca Viaje_drive_loader.py
 Descartado: Incluirlo por debajo de las indicaciones del PM. La desición debe ser respetada, pese a quedarnos sin un backup.
+
+## 21-02-2025 - Condicionamiento de carga a Drive como un backup opcional (pipeline Intervalos)
+Desición: Se decide implementar el método de carga a drive dentro de un condicional `DRIVE_BACKUP=True,False`, declarando la naturaleza de método secundario no bloqueador del pipeline Intervalos. De ser activado, un fallo de carag a Drive se logea como warning, el pipeline debe continuar.
+Por qué: Me parce una decisión más prudente que eliminar de tajo el método en el orquestador. No va directamente en contra de las decisiones de PM.
+Cómo: Introduciendo el paso que invoca Viaje_drive_loader.py bajo un bloque condicional de `DRIVE_BACKUP`.
+Descartado: Eliminar totalmente la opción de implementar el método de carga a Drive en el orquestador de Viajes.
