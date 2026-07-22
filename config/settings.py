@@ -41,16 +41,15 @@ GOOGLE_APPLICATION_CREDENTIALS = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"
 
 # --- BigQuery ---------------------------------------------------
 DATASET_ID        = os.environ.get("BQ_DATASET_ID")
-SONDA_PV_TABLE_ID = os.environ.get("BQ_SONDA_PV_TABLE_ID")
+SONDA_PV_TABLE_ID = os.environ.get("BQ_SONDA_PV_TABLE_ID")  
 
 BQ_PROJECT             = os.environ.get("BQ_PROJECT")
 BQ_DATASET_SONDA       = os.environ.get("BQ_DATASET_SONDA", "Sonda")
 BQ_DATASET_INTERTRAMOS = os.environ.get("BQ_DATASET_INTERTRAMOS", "TIEMPO_INTERTRAMOS")
 
-BQ_TABLE_VIAJES       = f"{BQ_PROJECT}.{BQ_DATASET_SONDA}.VIAJES"
-BQ_TABLE_INTERVALOS   = f"{BQ_PROJECT}.{BQ_DATASET_SONDA}.INTERVALOS"
-BQ_TABLE_INT_CUMPL    = f"{BQ_PROJECT}.{BQ_DATASET_INTERTRAMOS}.INTERVALOS_Y_CUMPLIMIENTOS"
-
+BQ_TABLE_VIAJES       = f"{BQ_PROJECT}.{BQ_DATASET_SONDA}.VIAJES_smoketest"
+BQ_TABLE_INTERVALOS   = f"{BQ_PROJECT}.{BQ_DATASET_SONDA}.INTERVALOS_smoketest"
+BQ_TABLE_INT_CUMPL    = f"{BQ_PROJECT}.{BQ_DATASET_INTERTRAMOS}.INTERVALOS_Y_CUMPLIMIENTOS_smoketest"
 
 # --- Sonda Platform Credentials ---------------------------------
 SONDA_QUERY_USER        = os.environ.get("SONDA_QUERY_USER")
@@ -87,6 +86,10 @@ PROCESSED_FLOTAV_PATH      = PROJECT_ROOT / "data" / "processed" / "processed_Fl
 RAW_VIAJE_PATH             = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Viaje")
 PROCESSED_VIAJE_PATH       = _runtime_path(PROJECT_ROOT / "data" / "processed" / "processed_Viaje")
                                            
+# --- SQL remote transform layers ----------------------------------------
+# In this section we add the location of SQL queries that runs over remote warehouse
+SQL_INTERVALOSDINAMICOS_PATH = _runtime_path(PROJECT_ROOT / "transform" / "sql" / "intervalos_dinamicos.sql")
+
 
 # Static configuration (not environment-dependent) ---------------
 MARCAS_CONFIG = [
