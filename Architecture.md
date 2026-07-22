@@ -38,48 +38,105 @@ Monorepo de pipelines ETL/EL para datos operativos de Metrobús CDMX. Cada pipel
 ## 4. Estructura del repo
 
 ```
-MBDataFlow_ETL/
-├── config/
-│   ├── settings.py              # env vars + _runtime_path() helper
-│   └── credentials/             # gitignored
+Listo: arbol.txt (235 lineas)
+ig/
+│   ├── credentials/
+│   │   ├── credentials.json
+│   │   ├── sa-key.json
+│   │   └── token.json
+│   ├── __init__.py
+│   ├── settings.py
+│   └── sonda_pv_config.json
+├── docs/
+│   ├── decision_log.md
+│   └── monitoring.md
+├── env/
+│   ├── Include/
+│   ├── Lib/
+│   │   ...
+│   ├── Scripts/
+│   │   ...
+│   ├── .gitignore
+│   └── pyvenv.cfg
 ├── extract/
-│   ├── base.py                  # Extractor ABC
 │   ├── helpers/
-│   └── scrapers/
-│       └── Desincorporaciones.py
-|       └── Circuitos.py   
-├── transform/
-│   └── transformers/
+│   │   ├── download_helper.py
+│   │   └── intervalo_fecha_helper.py
+│   ├── scrapers/
+│   │   ├── __init__.py
+│   │   ├── CanBus.py
+│   │   ├── Circuitos.py
+│   │   ├── Desincorporaciones.py
+│   │   ├── FlotaVehicular.py
+│   │   ├── recover_sonda_pv.py
+│   │   ├── Reporte_Viaje.py
+│   │   └── Reportes_Operador.py
+│   ├── __init__.py
+│   └── base.py
 ├── load/
-│   ├── base.py                  # Loader ABC
-│   └── loaders/
-│       └── Desincorporaciones_drive_loader.py
-│       └── Circuitos_drive_loader.py
+│   ├── loaders/
+│   │   ├── BigQuery_loader.py
+│   │   ├── CAN_drive_loader.py
+│   │   ├── Circuitos_drive_loader.py
+│   │   ├── Desincorporaciones_drive_loader.py
+│   │   ├── google_drive_loader.py
+│   │   ├── Reportes_Operador_drive_loader.py
+│   │   └── Viaje_drive_loader.py
+│   ├── schemas/
+│   │   └── viaje.py
+│   ├── __init__.py
+│   └── base.py
+├── logs/
 ├── pipelines/
-│   ├── pipeline_Desinc.py       # entrypoints invocables como python -m
+│   ├── __init__.py
+│   ├── pipeline_CanBus.py
 │   ├── pipeline_Circuitos.py
-│   ├── pipeline_CanBus.py                  # en pausa
-│   └── pipeline_rangofechas_canbus.py      # en pausa
+│   ├── pipeline_Desinc.py
+│   ├── pipeline_rangofechas_canbus.py
+│   └── pipeline_Viaje.py
+├── scripts/
+│   ├── deploy_circuitos.ps1
+│   ├── deploy_desinc.ps1
+│   ├── deploy_job_circuitos.ps1
+│   ├── deploy_job_desinc.ps1
+│   ├── setup_scheduler_circuitos.ps1
+│   ├── setup_scheduler_desinc.ps1
+│   ├── smoke_test_bigquery_loader.py
+│   └── smoketest_bq_sql_runner.py
+├── tests/
+│   ├── test_extract/
+│   ├── test_load/
+│   └── test_transform/
+├── transform/
+│   ├── sql/
+│   │   └── intervalos_dinamicos.sql
+│   ├── transformers/
+│   │   ├── __init__.py
+│   │   ├── CanBus.py
+│   │   ├── FlotaVehicular.py
+│   │   └── Reporte_Viaje.py
+│   ├── __init__.py
+│   ├── base.py
+│   └── bq_sql_runner.py
 ├── utils/
-│   ├── dates.py                 # yesterday_cdmx(), today_cdmx() · TZ-aware
+│   ├── __init__.py
+│   ├── dates.py
 │   ├── logger.py
 │   └── turno.py
-├── scripts/
-│   ├── deploy_desinc.ps1        # build + update job
-│   ├── deploy_job_desinc.ps1    # crear job (one-time)
-│   ├── setup_scheduler_desinc.ps1   
-|   ├── deploy_circuitos.ps1         
-│   ├── deploy_job_circuitos.ps1     
-│   └── setup_scheduler_circuitos.ps1
-├── docs/
-│   ├── architecture.html        # diagrama visual
-│   └── monitoring.md
-├── tests/                        # vacío
-├── Dockerfile                    # Python 3.13 + Chrome for Testing
+├── .dockerignore
+├── .env
+├── .env.example
+├── .gcloudignore
+├── .gitignore
+├── arbol.py
+├── arbol.txt
+├── Architecture.md
 ├── cloudbuild.yaml
-├── requirements.txt              # versiones pineadas
-├── .env.example                  # template
-└── .env                          # gitignored
+├── Dockerfile
+├── LICENSE
+├── python_check.py
+├── README.MD
+└── requirements.txt
 ```
 
 ---
