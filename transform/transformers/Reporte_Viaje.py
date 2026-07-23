@@ -310,7 +310,7 @@ def transform(raw_csv: Path) -> tuple[Path, Path]:
     if raw_csv.stat().st_size == 0:
         raise RuntimeError(f"Transform: el CSV crudo está vacío: {raw_csv}")
     
-    df_raw = pd.read_csv(raw_csv, encoding="latin1", sep=";", low_memory=False)
+    df_raw = pd.read_csv(raw_csv, encoding="latin1", sep=";", low_memory=False, index_col=False)
 
     df_viajes = transform_viajes(df_raw)
     if len(df_viajes) == 0:
