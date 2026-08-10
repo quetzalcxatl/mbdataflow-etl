@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import os
 import sys
-import warnings
 
 from config.settings import (
     BQ_PROJECT,
@@ -52,6 +51,7 @@ from config.settings import (
     BQ_TABLE_INTERVALOS_TEST,
     BQ_TABLE_INT_CUMPL_TEST,
     SQL_INTERVALOSDINAMICOS_PATH,
+    DRIVE_VIAJE_FOLDER_ID
 )
 from extract.scrapers.Reporte_Viaje import Viaje_Scraper
 from transform.transformers.Reporte_Viaje import transform
@@ -88,7 +88,7 @@ def _validate_env() -> tuple[bool, str | None]:
             faltantes.append(var)
 
     drive_backup = os.environ.get("DRIVE_BACKUP", "false").strip().lower() == "true"
-    drive_folder = os.environ.get("DRIVE_VIAJE_FOLDER_ID")
+    drive_folder = DRIVE_VIAJE_FOLDER_ID
     if drive_backup and not drive_folder:
         faltantes.append("DRIVE_VIAJE_FOLDER_ID (requerida cuando DRIVE_BACKUP=true)")
 
@@ -102,43 +102,26 @@ def _validate_env() -> tuple[bool, str | None]:
 
 
 # --------------------------------------------------------------------------
-# Paso opcional: respaldo del CSV crudo en Drive
+# Alimentación de CSV crudo en el directorio centralizado MBDataFlow_ETL
 # --------------------------------------------------------------------------
-def _try_drive_backup(raw_csv, folder_id: str) -> None:
+def _drive_backup(raw_csv, folder_id: str) -> None:
     """
-    Sube el CSV crudo a Drive como respaldo auditable. NO crítico.
+    Sube el CSV crudo a Drive. Parte medular del proceso.
+    Los errores en la carga son propagados directamente. Este paso forma
+    parte del contrato del pipeline.
 
-    Si Drive falla (permisos, cuota, red), se loguea un warning y el pipeline
-    continúa. Motivo: la fuente de verdad histórica es Sonda.VIAJES en BQ; el
-    Drive es defensa "por si acaso". Un fallo del respaldo no debe derribar
-    una carga que después llegó bien a BQ.
-
-    Excepción a esta política: propagaría solo si tras el warning quisiéramos
-    darle prioridad; hoy no la tiene.
+    El loader distingue transitorio (5xx / 429 / red) de permanente
+    (4xx auth/config) y reintentta solo lo transitorio con backoff exponencial
+    (2s/4s/8s, 3 intentos).
     """
-    try:
-        loader = Viaje_load_to_drive(raw_csv, folder_id)
-        file_id = loader.run()
-        if file_id:
-            ok(f"Drive backup: {raw_csv.name} -> {file_id}")
-        else:
-            warnings.warn(
-                f"Drive backup falló silenciosamente para {raw_csv.name} "
-                f"(loader retornó None). El pipeline continúa; BQ es la fuente de verdad.",
-                RuntimeWarning,
-            )
-    except Exception as e:
-        warnings.warn(
-            f"Drive backup falló para {raw_csv.name}: {type(e).__name__}: {e}. "
-            f"El pipeline continúa; BQ es la fuente de verdad.",
-            RuntimeWarning,
-        )
-
+    file_id = Viaje_load_to_drive(raw_csv, folder_id).run()
+    ok(f"Drive backup: {raw_csv.name} -> {file_id}")
 
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 def main() -> int:
+
     info("=" * 60)
     info("  pipeline_Viaje — arranque")
     info("=" * 60)
@@ -157,8 +140,8 @@ def main() -> int:
 
     # 2. Drive backup (opcional, no crítico)
     if drive_backup:
-        info("─ Etapa opcional: Drive backup ───────────────────────")
-        _try_drive_backup(raw_csv, drive_folder)
+        info("─ Drive backup ───────────────────────")
+        _drive_backup(raw_csv, drive_folder)
 
     # 3. Transform: dos CSVs procesados
     info("─ Etapa 2/5: Transform ───────────────────────────────")
