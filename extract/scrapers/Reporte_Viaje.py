@@ -123,8 +123,10 @@ class Viaje_Scraper(Extractor):
 
     def _set_ng_date(self, driver: webdriver.Chrome, css_selector: str, d) -> None:
         """Inyecta un Date real al ng-model del datepicker, saltando vista y $parser.
-        d: datetime.date. El Date se construye desde partes locales para evitar
-        el corrimiento UTC del Chrome headless en Cloud Run."""
+        d: datetime.date o datetime.datetime. Solo se usan y/m/d — la hora, si viene
+        en un datetime, se ignora porque el datepicker es de fecha, no de instante.
+        El Date se construye desde partes locales para evitar el corrimiento UTC del
+        Chrome headless en Cloud Run."""
         landed = driver.execute_script("""
             const el = document.querySelector(arguments[0]);
             if (!el) return '__NO_INPUT__';
@@ -205,7 +207,7 @@ class Viaje_Scraper(Extractor):
     #------------------------------------------------------------------------------------------------------------------------
 
     # Download method
-    def _download(self, driver: webdriver.Chrome, date_name: str)-> Path:
+    def _download(self, driver: webdriver.Chrome, date_name: str, week_number: int)-> Path:
         wait = WebDriverWait(driver, 20)
 
         def click_query_button():
@@ -280,7 +282,7 @@ class Viaje_Scraper(Extractor):
                     time.sleep(0.5)
 
                 # --- Rename directly, no second file ---
-                target = self.download_dir / f"RV_{date_name}.csv"
+                target = self.download_dir / f"RV_sem{week_number}_{date_name}.csv"
                 if target.exists():
                     target.unlink()
                 new_file.rename(target)
@@ -324,24 +326,53 @@ class Viaje_Scraper(Extractor):
         
 
     def scrape(self) -> None:
-        """Scrape data from the Sonda PV"""
-        from utils.dates import last_completed_week_cdmx
-        monday, sunday = last_completed_week_cdmx()
-        name_date  = f"{monday.strftime('%d%m%y')}_{sunday.strftime('%d%m%y')}"
+        """Scrape data from Sonda para la última semana operativa completa.
 
-        hora_i = "000000"
-        hora_f = "235959"
+        Contrato de "semana operativa" (ver utils.dates.last_completed_operational_week_cdmx):
+        lunes 03:20 → lunes siguiente 03:20, en CDMX. Los viajes de la
+        madrugada del lunes cuentan como servicio de la semana anterior.
 
-        print("Inicio de semana vencida:", monday)
-        print("Fin de semana vencida:", sunday)
+        Cómo se traduce al filtro de Sonda:
+          * date_i = lunes previo         (fecha inicial del rango de calendario)
+          * date_f = lunes de la semana   (fecha final del rango de calendario, 8 días)
+          * hora_i = "032000"             (hora del corte inicial)
+          * hora_f = "031959"             (un segundo antes del corte final → semiabierto)
+
+        Sonda interpreta el filtro fecha+hora como un rango CONTINUO
+        [date_i hora_i, date_f hora_f] sobre el instante — no como una ventana
+        horaria diaria. Con esta parametrización el filtro devuelve exactamente
+        la semana operativa [lunes 03:20, próximo lunes 03:20).
+
+        Nombre de archivo: RV_{ddmmyy_start}_{ddmmyy_end}.csv, i.e. 8 fechas de
+        calendario (lun→lun), distinto del contrato viejo que usaba 7 (lun→dom).
+        """
+        from utils.dates import last_completed_operational_week_cdmx, last_operational_week_number
+        start, end = last_completed_operational_week_cdmx()
+        week_numero = last_operational_week_number()
+
+        # Sonda recibe fecha (para el datepicker) y hora (texto) por separado.
+        # start/end son datetimes tz-aware, pero al datepicker solo van y/m/d.
+        date_i = start.date()
+        date_f = end.date()
+
+        # Constantes del contrato — no derivadas para dejar la semántica visible
+        # en el sitio donde el operador la va a leer.
+        hora_i = "032000"    # start.strftime("%H%M%S")
+        hora_f = "031959"    # semiabierto: un segundo antes de end.strftime("%H%M%S")
+
+        name_date = f"{start.strftime('%d%m%y')}_{end.strftime('%d%m%y')}"
+
+        print(f"Semana operativa: {start.strftime('%Y-%m-%d %H:%M %Z')} .. "
+              f"{end.strftime('%Y-%m-%d %H:%M %Z')}")
+        print(f"Filtro Sonda: fechas {date_i}..{date_f}, horas {hora_i}..{hora_f}")
 
         driver = self._start_driver()
         try:
             self._login(driver)
             self._navigate_to_report(driver)
-            self._request_hourdate_interval(driver, monday, sunday, hora_i, hora_f)
+            self._request_hourdate_interval(driver, date_i, date_f, hora_i, hora_f)
             self._navigate_to_downloads(driver)
-            target_path = self._download(driver, name_date)
+            target_path = self._download(driver,name_date,week_numero)
 
             time.sleep(1)
             self._logout(driver)
@@ -355,4 +386,3 @@ class Viaje_Scraper(Extractor):
 if __name__ == "__main__":
     scraper = Viaje_Scraper()
     scraper.run()
-    
