@@ -60,10 +60,11 @@ import sys
 
 from config.settings import (
     BQ_PROJECT,
-    BQ_DATASET_PRUEBAS,
-    BQ_TABLE_VIAJES_TEST,
-    BQ_TABLE_INTERVALOS_TEST,
-    BQ_TABLE_INT_CUMPL_TEST,
+    BQ_DATASET_SONDA,
+    BQ_DATASET_INTERTRAMOS,
+    BQ_TABLE_VIAJES,
+    BQ_TABLE_INTERVALOS,
+    BQ_TABLE_INT_CUMPL,
     DRIVE_VIAJE_FOLDER_ID,
     SQL_INTERVALOSDINAMICOS_PATH,
 )
@@ -99,8 +100,8 @@ def _validate_env() -> tuple[bool, str | None]:
     faltantes = []
     for var, val in [
         ("BQ_PROJECT",             BQ_PROJECT),
-        ("BQ_DATASET_SONDA",       BQ_DATASET_PRUEBAS),
-        #("BQ_DATASET_INTERTRAMOS", BQ_DATASET_INTERTRAMOS),
+        ("BQ_DATASET_SONDA",       BQ_DATASET_SONDA),
+        ("BQ_DATASET_INTERTRAMOS", BQ_DATASET_INTERTRAMOS),
     ]:
         if not val:
             faltantes.append(var)
@@ -179,7 +180,7 @@ def main() -> int:
     info("─ Etapa 3/5: BQ Load -> Sonda.VIAJES ─────────────────")
     BigQueryLoader(
         csv_path=viaje_csv,
-        table_id=BQ_TABLE_VIAJES_TEST,
+        table_id=BQ_TABLE_VIAJES,
         schema=VIAJES_SCHEMA,
         date_column="FECHA",
         date_column_type="TIMESTAMP",
@@ -196,7 +197,7 @@ def main() -> int:
     info("─ Etapa 4/5: BQ Load -> TIEMPO_INTERTRAMOS ───────────")
     BigQueryLoader(
         csv_path=intcumpl_csv,
-        table_id=BQ_TABLE_INT_CUMPL_TEST,
+        table_id=BQ_TABLE_INT_CUMPL,
         schema=INTERVALOS_Y_CUMPLIMIENTOS_SCHEMA,
         date_column="FECHA",
         date_column_type="DATETIME",
@@ -208,8 +209,8 @@ def main() -> int:
     info("─ Etapa 5/5: SQL Runner -> Sonda.INTERVALOS ──────────")
     BigQuerySQLRunner(
         sql_path=SQL_INTERVALOSDINAMICOS_PATH,
-        source_table=BQ_TABLE_VIAJES_TEST,
-        dest_table=BQ_TABLE_INTERVALOS_TEST,
+        source_table=BQ_TABLE_VIAJES,
+        dest_table=BQ_TABLE_INTERVALOS,
         min_row_ratio=0.9,   # guarda de regresión: histórico solo debe crecer
     ).run()
 
