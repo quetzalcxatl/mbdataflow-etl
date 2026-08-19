@@ -31,19 +31,11 @@ class Viaje_Scraper(Extractor):
         self.download_dir = RAW_VIAJE_PATH
         self.download_dir.mkdir(parents=True, exist_ok=True)
     
-    # Sub-método privado
-    # Instanciar Chrome Webdriver mediante Selenium
+    # Private sub-method
+    # Instanciate Chrome Webdriver throught Selenium package
     def _start_driver(self) -> webdriver.Chrome:
         options = Options()
         is_cloud_run = any(k in os.environ for k in ("CLOUD_RUN_JOB", "K_SERVICE", "CLOUD_RUN_EXECUTION"))
-
-        # Common prefs: allow multiple automatic downloads
-        common_prefs = {
-            "profile.default_content_setting_values.automatic_downloads": 1,
-            "profile.default_content_settings.popups": 0,
-            "download.prompt_for_download": False,
-            "download.directory_upgrade": True,
-        }
 
         if is_cloud_run:
             options.add_argument("--headless=new")
@@ -51,9 +43,8 @@ class Viaje_Scraper(Extractor):
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
             options.add_argument("--window-size=1366,768")
-            options.add_experimental_option("prefs", common_prefs)
             driver = webdriver.Chrome(options=options)
-            # Headless Chrome still needs CDP for the download path itself
+            # Headless Chrome ignores download prefs — must use CDP
             driver.execute_cdp_cmd(
                 "Page.setDownloadBehavior",
                 {"behavior": "allow", "downloadPath": str(self.download_dir)},
@@ -61,7 +52,7 @@ class Viaje_Scraper(Extractor):
         else:
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
-            prefs = {**common_prefs, "download.default_directory": str(self.download_dir)}
+            prefs = {"download.default_directory": str(self.download_dir)}
             options.add_experimental_option("prefs", prefs)
             driver = webdriver.Chrome(options=options)
             driver.set_window_size(1366, 768)

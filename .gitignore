@@ -57,3 +57,4 @@ python_check.py
 .tmp/
 *.png
 *.csv
+notas.txt
