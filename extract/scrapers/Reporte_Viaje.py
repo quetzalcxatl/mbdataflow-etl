@@ -202,7 +202,7 @@ class Viaje_Scraper(Extractor):
 
         iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
         driver.switch_to.frame(iframe)
-        driver.save_screenshot(str(self.download_dir / "step14_download_dashboard.png"))
+        driver.save_screenshot(str(self.download_dir / "step16_download_dashboard.png"))
 
         return None
     
@@ -222,13 +222,13 @@ class Viaje_Scraper(Extractor):
         # --- Trigger the first query to populate the table ---
         click_query_button()
         time.sleep(1)
-        driver.save_screenshot(str(self.download_dir / "step15_request.png"))
+        driver.save_screenshot(str(self.download_dir / "step17_request.png"))
 
         # --- Wait for the table to appear ---
         wait.until(EC.presence_of_element_located(
             (By.CSS_SELECTOR, "table#example.table.responsive.tPainelEventos")
         ))
-        driver.save_screenshot(str(self.download_dir / "step16_table_visible.png"))
+        driver.save_screenshot(str(self.download_dir / "step18_table_visible.png"))
         time.sleep(1)  # Let Angular finish rendering ng-repeat rows
 
         # --- Poll until the latest row status is COMPLETO ---
@@ -251,7 +251,7 @@ class Viaje_Scraper(Extractor):
                 download_link = latest_row.find_element(By.CSS_SELECTOR, "a.btn-links")
                 driver.execute_script("arguments[0].click();", download_link) # Acciona la descarga
                 print(f"[DOWNLOAD] Triggered download for Viaje Report dated {latest_date.strftime('%d/%m/%Y %H:%M:%S')}")
-                driver.save_screenshot(str(self.download_dir / "step15_(a)_download_succesfull.png")) 
+                driver.save_screenshot(str(self.download_dir / "step19_download_succesfull.png")) 
                 
                 # --- Poll until a real .csv appears (no partials) ---
                 timeout = 120
