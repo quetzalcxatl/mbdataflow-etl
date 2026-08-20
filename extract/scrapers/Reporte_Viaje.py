@@ -30,17 +30,30 @@ class Viaje_Scraper(Extractor):
     def __init__(self, config_path: Path | None = None) -> None:
         self.download_dir = RAW_VIAJE_PATH
         self.download_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    @staticmethod
+    def _resolve_headless(is_cloud_run: bool) -> bool:
+        "Resuelve/determina si Chrome corre headless. DESACOPLADO de la detección"
+        "de Cloud Run"
+        override = os.environ.get("SCRAPER_HEADLESS")
+        if override is not None:
+            return override.strip().lower() in ("1", "true", "yes", "on")
+        return is_cloud_run
+        
     # Private sub-method
     # Instanciate Chrome Webdriver throught Selenium package
     def _start_driver(self) -> webdriver.Chrome:
         options = Options()
         is_cloud_run = any(k in os.environ for k in ("CLOUD_RUN_JOB", "K_SERVICE", "CLOUD_RUN_EXECUTION"))
+        headless = self._resolve_headless(is_cloud_run)
+        print(f"[DRIVER] headless={headless} cloud_run={is_cloud_run} "
+              f"download_dir={self.download_dir}")
 
-        if is_cloud_run:
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        
+        if headless:
             options.add_argument("--headless=new")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
             options.add_argument("--window-size=1366,768")
             driver = webdriver.Chrome(options=options)
@@ -50,8 +63,6 @@ class Viaje_Scraper(Extractor):
                 {"behavior": "allow", "downloadPath": str(self.download_dir)},
             )
         else:
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
             prefs = {"download.default_directory": str(self.download_dir)}
             options.add_experimental_option("prefs", prefs)
             driver = webdriver.Chrome(options=options)
@@ -168,9 +179,9 @@ class Viaje_Scraper(Extractor):
 
         # Click para meter la request
         guardar_buttom = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'button.btn.btn-new.verde-btn.ng-binding[validate-form][data-dismiss="modal"]')))
-        driver.save_screenshot(str(self.download_dir / "step13_guardar_buttom_visible.png"))
+        driver.save_screenshot(str(self.download_dir / "step15a_guardar_buttom_visible.png"))
         driver.execute_script("arguments[0].click();", guardar_buttom)
-        driver.save_screenshot(str(self.download_dir / "step14_guardar_buttom_clicked.png"))
+        driver.save_screenshot(str(self.download_dir / "step15b_guardar_buttom_clicked.png"))
 
         driver.switch_to.default_content()
 
@@ -199,7 +210,7 @@ class Viaje_Scraper(Extractor):
 
     # Download method
     def _download(self, driver: webdriver.Chrome, date_name: str, week_number: int)-> Path:
-        wait = WebDriverWait(driver, 20)
+        wait = WebDriverWait(driver, 30)
 
         def click_query_button():
             """Re-locates and clicks the query button fresh each time to avoid stale references."""
@@ -210,7 +221,7 @@ class Viaje_Scraper(Extractor):
 
         # --- Trigger the first query to populate the table ---
         click_query_button()
-        #time.sleep(5)
+        time.sleep(1)
         driver.save_screenshot(str(self.download_dir / "step15_request.png"))
 
         # --- Wait for the table to appear ---
@@ -314,7 +325,76 @@ class Viaje_Scraper(Extractor):
         logout_confirm = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[class='confirm confirm-btn']")))
         logout_confirm.click()
         driver.save_screenshot(str(self.download_dir / "logout3_logout_confirmed.png"))
-        
+
+    # ------------------------------------------------------------------
+    # Observabilidad de fallos (PR-A)
+    # ------------------------------------------------------------------
+    def _dump_debug_on_failure(self, driver) -> None:
+        """Vuelca evidencia del fallo. Contrato: NUNCA lanza.
+
+        Si propagara, enmascararía la excepción real (el bug que cazamos). Es la
+        única excepción justificada a 'nada silencioso' (§5.6): aquí el silencio
+        protege la señal, no la oculta. Todo se imprime a stdout (sobrevive vía
+        Cloud Logging) y se exfiltra a Drive (sobrevive a la muerte del contenedor).
+        """
+        try:
+            print("[DEBUG] -- captura de evidencia del fallo --------------------")
+            try:
+                print(f"[DEBUG] URL en el fallo: {driver.current_url}")
+            except Exception as e:
+                print(f"[DEBUG] current_url no disponible: {type(e).__name__}: {e}")
+
+            # page_source del CONTEXTO ACTUAL. En el timeout de la tabla de descargas
+            # estamos dentro del iframe -> es justo el DOM donde 'table#example'
+            # debería existir (o no). Eso disambigua H1 vs H2.
+            try:
+                src = driver.page_source
+                (self.download_dir / "FAILURE_page_source.html").write_text(src, encoding="utf-8")
+                print(f"[DEBUG] page_source capturado: {len(src)} chars")
+            except Exception as e:
+                print(f"[DEBUG] page_source no disponible: {type(e).__name__}: {e}")
+
+            try:
+                driver.save_screenshot(str(self.download_dir / "FAILURE_final_state.png"))
+            except Exception as e:
+                print(f"[DEBUG] screenshot final no disponible: {type(e).__name__}: {e}")
+
+            artifacts = sorted(p for p in self.download_dir.glob("*") if p.is_file())
+            print(f"[DEBUG] {len(artifacts)} artefactos en {self.download_dir}:")
+            for p in artifacts:
+                print(f"[DEBUG]   {p.name} ({p.stat().st_size} bytes)")
+
+            self._upload_debug_artifacts(artifacts)
+        except Exception as e:
+            print(f"[DEBUG] dumper falló (ignorado): {type(e).__name__}: {e}")
+
+    def _upload_debug_artifacts(self, artifacts) -> None:
+        """Exfiltra los artefactos de /tmp a Drive. Best-effort.
+
+        Kill switch: SCRAPER_DEBUG_ARTIFACTS=false lo desactiva.
+        Folder: DRIVE_VIAJE_DEBUG_FOLDER_ID si existe; si no, cae en
+        DRIVE_VIAJE_FOLDER_ID (la misma carpeta del CSV).
+        """
+        if os.environ.get("SCRAPER_DEBUG_ARTIFACTS", "true").strip().lower() != "true":
+            print("[DEBUG] SCRAPER_DEBUG_ARTIFACTS != true -> sin exfiltración.")
+            return
+        if not artifacts:
+            print("[DEBUG] sin artefactos que exfiltrar.")
+            return
+
+        from config.settings import DRIVE_VIAJE_FOLDER_ID
+        folder = os.environ.get("DRIVE_VIAJE_DEBUG_FOLDER_ID") or DRIVE_VIAJE_FOLDER_ID
+        if not folder:
+            print("[DEBUG] sin folder de Drive configurado -> sin exfiltración.")
+            return
+
+        try:
+            from load.loaders.debug_drive_loader import upload_debug_files
+            tag = datetime.now().strftime("%Y%m%d_%H%M%S")  # UTC en Cloud; solo es etiqueta
+            ids = upload_debug_files(artifacts, folder, name_prefix=f"viaje_debug_{tag}__")
+            print(f"[DEBUG] {len(ids)}/{len(artifacts)} artefactos exfiltrados a Drive folder {folder}")
+        except Exception as e:
+            print(f"[DEBUG] exfiltración a Drive falló (ignorado): {type(e).__name__}: {e}")
 
     def scrape(self) -> None:
         """Scrape data from Sonda para la última semana operativa completa.
@@ -367,6 +447,12 @@ class Viaje_Scraper(Extractor):
 
             time.sleep(1)
             self._logout(driver)
+        except Exception:
+            # Captura ANTES de quit(): necesitamos el driver vivo. El dumper nunca
+            # lanza, así que la excepción real se re-propaga intacta.
+            self._dump_debug_on_failure(driver)
+            raise
+
         finally:
             driver.quit()
 
