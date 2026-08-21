@@ -200,7 +200,7 @@ class Viaje_Scraper(Extractor):
 
     # Query dashboard and download report
     def _navigate_to_downloads(self, driver: webdriver.Chrome) -> None:
-        wait = WebDriverWait(driver, 20)
+        wait = WebDriverWait(driver, 30)
         # Click the sidebar icon using JavaScript
         sidebar_icon = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "img[src='img/fa-list.png']")))
         driver.execute_script("arguments[0].click();", sidebar_icon)
@@ -210,8 +210,17 @@ class Viaje_Scraper(Extractor):
                 (By.XPATH, "//*[@id='navbar-fixed-left']/ul/li[9]/ul/li/ul/li[1]/a[1]")))
         driver.execute_script("arguments[0].click();", report_dashboard)
 
-        iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
-        driver.switch_to.frame(iframe)
+        # PR-C: la view Central de Descargas se renderiza DIRECTAMENTE en
+        # ng-view del top document (no en iframe, a diferencia del Viaje
+        # report). El switch_to.frame(iframe) previo enganchaba un iframe
+        # transitorio del reporte anterior y dejaba a Selenium en un DOM
+        # fantasma: todo find_elements posterior corría contra un documento
+        # detached y jamás encontraba el botón Consultar ni la tabla real.
+        # Anclamos a la clase única del contenedor Central (hCentralDownloads)
+        # para confirmar que la vista ya cargó en el top document.
+        driver.switch_to.default_content()
+        wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "div.hCentralDownloads")))
         driver.save_screenshot(str(self.download_dir / "step16_download_dashboard.png"))
 
         return None
@@ -222,11 +231,24 @@ class Viaje_Scraper(Extractor):
     def _download(self, driver: webdriver.Chrome, date_name: str, week_number: int)-> Path:
         wait = WebDriverWait(driver, 30)
 
+        # PR-C: selectores específicos del Central de Descargas.
+        # * CONSULTAR_BTN: el botón "Consultar" real (btn-default btnNormal,
+        #   tabindex=12) del form.hpainelEventosform en la view Central.
+        #   NO confundir con "Generar Reporte" del reporte anterior
+        #   (btn-new verde-btn) que compartía type=submit y era el que
+        #   Selenium clickaba por error cuando quedaba en frame fantasma.
+        # * RESULT_TABLE: la tabla vive dentro de div.resultadosPainelEventos,
+        #   que a su vez tiene ng-show="listDownload.length" — o sea, sólo
+        #   se muestra cuando llegó data del XHR. Por eso el criterio de
+        #   éxito es visibilidad (is_displayed), no presencia: el wrapper
+        #   está siempre en el DOM aunque no haya data (display:none).
+        central_root  = "div.hCentralDownloads"
+        consultar_btn = f"{central_root} form.hpainelEventosform button[type='submit']"
+        result_table  = f"{central_root} div.resultadosPainelEventos table#example"
+
         def click_query_button():
             """Re-locates and clicks the query button fresh each time to avoid stale references."""
-            btn = wait.until(EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "button[type=submit]")
-            ))
+            btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, consultar_btn)))
             driver.execute_script("arguments[0].click();", btn)
 
         # --- Trigger the first query to populate the table ---
@@ -234,15 +256,16 @@ class Viaje_Scraper(Extractor):
         time.sleep(1)
         driver.save_screenshot(str(self.download_dir / "step17_request.png"))
 
-        # --- Wait for the table to appear (long poll with periodic evidence) ---
-        # PR-B: subimos el timeout de 30s -> 120s y polleamos cada 15s dejando
-        # screenshot + log de readyState/url. Si la causa es latencia pura
-        # (candidata 1), este cambio ES el fix; si no, la serie temporal de
-        # screenshots + los goog:loggingPrefs habilitados en _start_driver
-        # discriminan entre red/sesión (candidata 2) y render headless (candidata 3).
-        table_selector = "table#example.table.responsive.tPainelEventos"
-        table_timeout = 120
-        table_interval = 15
+        # --- Wait for the results wrapper to become VISIBLE (data arrived) ---
+        # Mantenemos el poll loop de PR-B por observabilidad (screenshots +
+        # readyState/url en cada tick), pero reducimos timeout a 60s y
+        # tick a 5s ahora que el bug de frame fantasma está corregido: la
+        # data local llega en <5s, 60s es holgura. Criterio de éxito:
+        # wrapper resultadosPainelEventos VISIBLE (ng-show cumplido) — no
+        # simple presence, porque presence es trivialmente True desde que
+        # carga la view.
+        table_timeout = 60
+        table_interval = 5
         elapsed = 0
         table_found = False
         readyState = "<not-probed>"
@@ -260,8 +283,9 @@ class Viaje_Scraper(Extractor):
             print(f"[TABLE-WAIT] t={elapsed:03d}s readyState={readyState} url={current_url}")
 
             try:
-                if driver.find_elements(By.CSS_SELECTOR, table_selector):
-                    print(f"[TABLE-WAIT] tabla detectada en t={elapsed}s")
+                elems = driver.find_elements(By.CSS_SELECTOR, result_table)
+                if elems and elems[0].is_displayed():
+                    print(f"[TABLE-WAIT] tabla visible en t={elapsed}s")
                     table_found = True
                     break
             except Exception as e:
@@ -279,7 +303,7 @@ class Viaje_Scraper(Extractor):
 
         if not table_found:
             raise TimeoutException(
-                f"Tabla {table_selector!r} no apareció tras {table_timeout}s "
+                f"Tabla {result_table!r} no visible tras {table_timeout}s "
                 f"(polling cada {table_interval}s). "
                 f"Último readyState={readyState}, url={current_url}."
             )
@@ -351,9 +375,10 @@ class Viaje_Scraper(Extractor):
                 # Report is still being generated — wait and re-trigger the table refresh
                 time.sleep(10)
                 click_query_button()  # Re-locates the button fresh — avoids stale reference
-                # Wait for the table to re-render before checking again
-                wait.until(EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, "table#example.table.responsive.tPainelEventos")
+                # Wait for the results wrapper to be visible again after the re-query.
+                # PR-C: mismo selector anclado al Central + visibility (no presence).
+                wait.until(EC.visibility_of_element_located(
+                    (By.CSS_SELECTOR, result_table)
                 ))
             
             else:
