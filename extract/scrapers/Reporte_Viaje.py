@@ -1,12 +1,14 @@
 """Connector for the Viaje report data source."""
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 import time
 from datetime import datetime
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -51,7 +53,15 @@ class Viaje_Scraper(Extractor):
 
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        
+
+        # PR-B: capturar consola (JS) y red (CDP Network.*) para el dumper.
+        # Árbitro determinista entre "el XHR devuelve 401/403/timeout" y
+        # "el JS de DataTables revienta en el init". Se leen con get_log()
+        # en _dump_debug_on_failure.
+        options.set_capability(
+            "goog:loggingPrefs", {"browser": "ALL", "performance": "ALL"}
+        )
+
         if headless:
             options.add_argument("--headless=new")
             options.add_argument("--disable-gpu")
@@ -224,10 +234,56 @@ class Viaje_Scraper(Extractor):
         time.sleep(1)
         driver.save_screenshot(str(self.download_dir / "step17_request.png"))
 
-        # --- Wait for the table to appear ---
-        wait.until(EC.presence_of_element_located(
-            (By.CSS_SELECTOR, "table#example.table.responsive.tPainelEventos")
-        ))
+        # --- Wait for the table to appear (long poll with periodic evidence) ---
+        # PR-B: subimos el timeout de 30s -> 120s y polleamos cada 15s dejando
+        # screenshot + log de readyState/url. Si la causa es latencia pura
+        # (candidata 1), este cambio ES el fix; si no, la serie temporal de
+        # screenshots + los goog:loggingPrefs habilitados en _start_driver
+        # discriminan entre red/sesión (candidata 2) y render headless (candidata 3).
+        table_selector = "table#example.table.responsive.tPainelEventos"
+        table_timeout = 120
+        table_interval = 15
+        elapsed = 0
+        table_found = False
+        readyState = "<not-probed>"
+        current_url = "<not-probed>"
+
+        while elapsed < table_timeout:
+            try:
+                readyState = driver.execute_script("return document.readyState")
+            except Exception as e:
+                readyState = f"<unavailable: {type(e).__name__}>"
+            try:
+                current_url = driver.current_url
+            except Exception as e:
+                current_url = f"<unavailable: {type(e).__name__}>"
+            print(f"[TABLE-WAIT] t={elapsed:03d}s readyState={readyState} url={current_url}")
+
+            try:
+                if driver.find_elements(By.CSS_SELECTOR, table_selector):
+                    print(f"[TABLE-WAIT] tabla detectada en t={elapsed}s")
+                    table_found = True
+                    break
+            except Exception as e:
+                print(f"[TABLE-WAIT] probe error: {type(e).__name__}: {e}")
+
+            try:
+                driver.save_screenshot(
+                    str(self.download_dir / f"step17b_wait_t{elapsed:03d}s.png")
+                )
+            except Exception as e:
+                print(f"[TABLE-WAIT] screenshot t={elapsed}s falló: {type(e).__name__}: {e}")
+
+            time.sleep(table_interval)
+            elapsed += table_interval
+
+        if not table_found:
+            raise TimeoutException(
+                f"Tabla {table_selector!r} no apareció tras {table_timeout}s "
+                f"(polling cada {table_interval}s). "
+                f"Último readyState={readyState}, url={current_url}."
+            )
+
         driver.save_screenshot(str(self.download_dir / "step18_table_visible.png"))
         time.sleep(1)  # Let Angular finish rendering ng-repeat rows
 
@@ -358,6 +414,23 @@ class Viaje_Scraper(Extractor):
                 driver.save_screenshot(str(self.download_dir / "FAILURE_final_state.png"))
             except Exception as e:
                 print(f"[DEBUG] screenshot final no disponible: {type(e).__name__}: {e}")
+
+            # PR-B: drenar los buffers de goog:loggingPrefs (browser=consola JS,
+            # performance=eventos CDP Network.*). Uno-por-línea para inspección
+            # con jq/grep. Cada canal se aísla — si uno revienta no arrastra al otro.
+            for log_type, filename in (
+                ("browser", "FAILURE_console.log"),
+                ("performance", "FAILURE_network.log"),
+            ):
+                try:
+                    entries = driver.get_log(log_type)
+                    out = self.download_dir / filename
+                    with out.open("w", encoding="utf-8") as f:
+                        for entry in entries:
+                            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                    print(f"[DEBUG] {log_type} log capturado: {len(entries)} entradas -> {filename}")
+                except Exception as e:
+                    print(f"[DEBUG] {log_type} log no disponible: {type(e).__name__}: {e}")
 
             artifacts = sorted(p for p in self.download_dir.glob("*") if p.is_file())
             print(f"[DEBUG] {len(artifacts)} artefactos en {self.download_dir}:")
