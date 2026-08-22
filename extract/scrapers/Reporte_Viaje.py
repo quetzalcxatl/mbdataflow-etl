@@ -210,15 +210,19 @@ class Viaje_Scraper(Extractor):
                 (By.XPATH, "//*[@id='navbar-fixed-left']/ul/li[9]/ul/li/ul/li[1]/a[1]")))
         driver.execute_script("arguments[0].click();", report_dashboard)
 
-        # PR-C: la view Central de Descargas se renderiza DIRECTAMENTE en
-        # ng-view del top document (no en iframe, a diferencia del Viaje
-        # report). El switch_to.frame(iframe) previo enganchaba un iframe
-        # transitorio del reporte anterior y dejaba a Selenium en un DOM
-        # fantasma: todo find_elements posterior corría contra un documento
-        # detached y jamás encontraba el botón Consultar ni la tabla real.
-        # Anclamos a la clase única del contenedor Central (hCentralDownloads)
-        # para confirmar que la vista ya cargó en el top document.
+        # PR-D: la SPA usa multiAbas — cada reporte abre en su propio
+        # <iframe> dentro de un ui-dialog de jQuery UI, y la URL top NO
+        # cambia (el ruteo va por src del iframe, no por el hash top).
+        # El código original hacía switch_to.frame(<primer iframe>), que
+        # con dos tabs abiertos agarraba iframe-0 (Viaje) en vez de
+        # iframe-1 (Central) — de ahí el DOM fantasma de PR-B. PR-C
+        # buscaba div.hCentralDownloads en el top, pero ese div vive
+        # DENTRO del iframe. Fix: anclar al iframe cuyo src apunta a
+        # /preferencias/central y switch_to.frame de ese específico.
         driver.switch_to.default_content()
+        central_iframe = wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "iframe[src*='preferencias/central']")))
+        driver.switch_to.frame(central_iframe)
         wait.until(EC.presence_of_element_located(
             (By.CSS_SELECTOR, "div.hCentralDownloads")))
         driver.save_screenshot(str(self.download_dir / "step16_download_dashboard.png"))
