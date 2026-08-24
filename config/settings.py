@@ -90,6 +90,7 @@ RAW_FLOTAV_PATH            = PROJECT_ROOT / "data" / "raw" / "downloads_Flota_Ve
 PROCESSED_FLOTAV_PATH      = PROJECT_ROOT / "data" / "processed" / "processed_Flota_Vehicular"
 RAW_VIAJE_PATH             = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Viaje")
 PROCESSED_VIAJE_PATH       = _runtime_path(PROJECT_ROOT / "data" / "processed" / "processed_Viaje")
+RAW_PASOS_PATH             = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Pasos")
                                            
 # --- SQL remote transform layers ----------------------------------------
 # In this section we add the location of SQL queries that runs over remote warehouse
