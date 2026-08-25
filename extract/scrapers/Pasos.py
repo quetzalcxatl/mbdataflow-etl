@@ -27,6 +27,11 @@ _MESES_ES = {
     "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
 }
 
+LINEAS_OPERATIVAS = [
+    'Línea 1', 'Línea 2', 'Línea 3', 'Línea 4', 'Línea 5',
+    'Línea 6', 'Línea 7', 'Línea A31', 'Línea C21', 'Línea H72',
+]
+
 class Pasos_Scraper(Extractor):
     """Download and load data for the Reporte_Pasos source."""
 
@@ -240,7 +245,95 @@ class Pasos_Scraper(Extractor):
         driver.save_screenshot(str(self.download_dir / "step11_datetime_interval.png"))
     #------------------------------------------------------------------------------------------------------------------------
 
+    def _select_linea(self, driver: webdriver.Chrome, linea_name: str) -> None:
+        """Selecciona una línea del dropdown 'Línea' (custom shadcn dropdown).
 
+        Estructura:
+        - Trigger: <div class='... cursor-pointer w-[200px]'> dentro del bloque
+            cuya label es 'Línea *'.
+        - Popover: <div class='absolute z-50 ...'> con <input placeholder='Buscar...'>
+            y opciones <div class='... cursor-pointer'> con <div class='truncate'>TEXTO</div>.
+
+        Post-condición: el <span class='truncate'> del trigger muestra linea_name.
+        """
+        wait = WebDriverWait(driver, 15)
+
+        trigger_xpath = (
+            "//label[starts-with(normalize-space(.), 'Línea')]"
+            "/following-sibling::div[1]//div[contains(@class,'cursor-pointer')]"
+        )
+        trigger = wait.until(EC.element_to_be_clickable((By.XPATH, trigger_xpath)))
+        driver.execute_script("arguments[0].click();", trigger)
+
+        # Popover identificado por el input 'Buscar...' (discriminador robusto)
+        popover_xpath = (
+            "//div[contains(@class,'absolute') and contains(@class,'z-50')"
+            " and .//input[@placeholder='Buscar...']]"
+        )
+        wait.until(EC.presence_of_element_located((By.XPATH, popover_xpath)))
+
+        # Opción: el div outer con cursor-pointer que contiene el texto exacto.
+        # Clickeamos el outer (no el .truncate) para que el evento se maneje correctamente.
+        option_xpath = (
+            f"{popover_xpath}//div[contains(@class,'cursor-pointer')"
+            f" and .//div[normalize-space(text())='{linea_name}']]"
+        )
+        option = wait.until(EC.element_to_be_clickable((By.XPATH, option_xpath)))
+        driver.execute_script("arguments[0].click();", option)
+
+        # Post-condición: el span del trigger muestra la línea seleccionada
+        trigger_span_xpath = (
+            "//label[starts-with(normalize-space(.), 'Línea')]"
+            "/following-sibling::div[1]//span[contains(@class,'truncate')]"
+        )
+        wait.until(lambda d: d.find_element(
+            By.XPATH, trigger_span_xpath
+        ).text.strip() == linea_name)
+
+    def _click_descargar_reporte(self, driver: webdriver.Chrome,
+                             timeout: int = 20) -> None:
+        """Click al botón 'Descargar reporte'.
+
+        Precondición: Línea seleccionada (es lo que habilita el botón).
+        'Consultar' no interviene en el flujo — este SPA descarga directamente.
+
+        Timeout generoso (60s) porque desconocemos empíricamente cuánto tarda el
+        SPA en habilitar el botón tras la selección de línea (puede haber round-trip
+        al backend para validar).
+        """
+        wait = WebDriverWait(driver, timeout)
+        boton = wait.until(EC.element_to_be_clickable((
+            By.XPATH, "//button[normalize-space(.)='Descargar reporte']"
+        )))
+        driver.execute_script("arguments[0].click();", boton)
+
+    def _confirm_download_modal(self, driver: webdriver.Chrome,
+                            timeout: int = 15) -> None:
+        """Confirma el modal 'Descargar reporte' clickeando 'Guardar'.
+
+        El modal es un Radix Dialog (role='dialog', data-state='open') que
+        aparece tras clickear 'Descargar reporte'. El texto indica que el
+        reporte se encolará en la Central de Descargas — el click en 'Guardar'
+        NO descarga un archivo, solo envía la solicitud.
+
+        Post-condición: el dialog desaparece del DOM (o pasa a data-state='closed').
+        """
+        wait = WebDriverWait(driver, timeout)
+
+        wait.until(EC.presence_of_element_located((
+            By.XPATH, "//div[@role='dialog' and @data-state='open']"
+        )))
+
+        guardar = wait.until(EC.element_to_be_clickable((
+            By.XPATH,
+            "//div[@role='dialog' and @data-state='open']"
+            "//button[normalize-space(.)='Guardar']"
+        )))
+        driver.execute_script("arguments[0].click();", guardar)
+
+        wait.until(EC.invisibility_of_element_located((
+            By.XPATH, "//div[@role='dialog' and @data-state='open']"
+        )))
 
     # Make logout of Sonda platform
     def _logout(self, driver: webdriver.Chrome) -> None:
@@ -281,6 +374,26 @@ class Pasos_Scraper(Extractor):
             self._login(driver)
             self._navigate_to_report(driver)
             self._request_datetime_interval(driver, dt_i, dt_f)
+            # PR-C: proof-of-concept con una sola línea (primera de la lista).
+            # La iteración completa sobre LINEAS_OPERATIVAS y el handling del
+            # archivo descargado (polling, rename) quedan para PR-D.
+            linea_test = LINEAS_OPERATIVAS[0]
+            print(f"[LINEA] Seleccionando: {linea_test}")
+            self._select_linea(driver, linea_test)
+            safe_name = linea_test.replace(' ', '_')
+            driver.save_screenshot(str(self.download_dir / f"step12_linea_{safe_name}.png"))
+
+            print("[DESCARGAR] Click en 'Descargar reporte' (espera habilitación)")
+            self._click_descargar_reporte(driver)
+            print("[LISTO] Click enviado")
+        
+            time.sleep(5)
+            driver.save_screenshot(str(self.download_dir / "step13_post_descargar.png"))
+            
+            self._confirm_download_modal(driver)
+            print(f"[ENCOLADO] Solicitud enviada para {linea_test}")
+            driver.save_screenshot(str(self.download_dir / "step14_post_guardar.png"))
+
             # Selección de línea y Consultar: fuera del scope de PR-B
             time.sleep(2)
             self._logout(driver)
