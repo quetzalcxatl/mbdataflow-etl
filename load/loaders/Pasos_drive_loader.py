@@ -17,15 +17,15 @@ El año y la semana llegan por CONSTRUCTOR desde el orquestador, que ya los
 conoce vía utils.dates. Este loader NO los deriva parseando nombres de archivo:
 la fuente de verdad es el argumento, no la convención de naming.
 
-MEDULAR: igual que Viaje, la carga es camino crítico. Ver `run()` para la
-política de errores (best-effort con raise final) — se implementa en PR-B.
-
-ESTADO: PR-A. Solo resuelve/crea la jerarquía de carpetas. La subida de
-archivos llega en PR-B.
+MEDULAR: la carga es camino crítico. Política de errores BEST-EFFORT CON RAISE
+FINAL: se intentan los 10 archivos, se acumulan los fallos, y si hubo al menos
+uno se lanza RuntimeError al final. El Job queda FAILED (dispara la alerta de
+Cloud Monitoring) pero los archivos que sí pudieron subir quedan subidos —
+la re-corrida solo tiene que atacar los que faltan. Ver `run()`.
 
 DEUDA CONOCIDA: `_is_transient` / `_with_retry` están duplicados desde
 `Viaje_drive_loader.py`. Extraer a un módulo compartido es un refactor
-deliberadamente fuera del scope de este PR.
+deliberadamente fuera del scope de estos PRs.
 '''
 
 import time
@@ -35,8 +35,9 @@ from pathlib import Path
 import google.auth
 from googleapiclient.discovery import build
 from googleapiclient.errors    import HttpError
+from googleapiclient.http      import MediaFileUpload
 
-from utils.logger import ok, info
+from utils.logger import ok, info, err
 
 
 # ------------------------------------------------------------------
@@ -47,15 +48,12 @@ from utils.logger import ok, info
 #
 # 'drive.file' limita el acceso a archivos creados por la propia app. Este
 # loader necesita localizar carpetas creadas manualmente por un humano en la
-# unidad compartida (la raíz 'reporte_de_pasos' y, si ya existen, las de año y
-# semana). Con 'drive.file' esas carpetas serían invisibles y el loader crearía
-# duplicados o fallaría con 404 al intentar escribir bajo un parent que no ve.
-#
-# Si el test empírico demuestra que 'drive.file' basta en este setup, bajar el
-# scope aquí —es una sola línea— y documentarlo.
+# unidad compartida (la raíz 'reporte_de_pasos' y las de año/semana si ya
+# existen). Verificado empíricamente en PR-A: con este scope la SA las ve.
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
+CSV_MIME    = "text/csv"
 
 # HTTP status codes que representan fallos temporales del servidor o rate-limits.
 # Los 4xx que NO están aquí (401, 403, 404, 400) son config incorrecta y no se
@@ -130,9 +128,8 @@ def _with_retry(fn, *, attempts: int = 3, base_delay: float = 2.0):
 def _escape_q(value: str) -> str:
     """Escapa un literal para interpolarlo en una query de Drive API.
 
-    Los nombres que maneja este loader son numéricos, así que hoy es defensa
-    redundante. Se deja porque el costo es cero y el día que alguien pase un
-    nombre con apóstrofo la query se rompería de forma opaca.
+    Aquí SÍ importa: los nombres de archivo vienen del scraper, no son
+    numéricos, y un apóstrofo rompería la query de forma opaca.
     """
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
@@ -272,19 +269,150 @@ class Pasos_load_to_drive:
         return week_id
 
     # ------------------------------------------------------------------
+    # Idempotencia a nivel archivo
+    # ------------------------------------------------------------------
+
+    def _file_already_exists(self, service, filename: str,
+                             parent_folder_id: str) -> str | None:
+        """Devuelve el ID del archivo `filename` bajo `parent_folder_id`, o None.
+
+        Idempotencia POR NOMBRE, igual que Viaje. Consecuencia deliberada: si
+        re-generas un CSV con el mismo nombre pero contenido corregido, este
+        loader lo OMITE en vez de reemplazarlo. Para forzar el reemplazo hay que
+        borrar el archivo en Drive a mano. Se elige así porque el caso frecuente
+        es la re-corrida idéntica (retry del Job), no la corrección de contenido.
+        """
+        query = (
+            f"name = '{_escape_q(filename)}' "
+            f"and '{parent_folder_id}' in parents "
+            f"and mimeType != '{FOLDER_MIME}' "
+            f"and trashed = false"
+        )
+        response = _with_retry(lambda: (
+            service.files()
+            .list(
+                q=query,
+                fields="files(id, name)",
+                spaces="drive",
+                pageSize=10,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute()
+        ))
+        files = response.get("files", [])
+        return files[0]["id"] if files else None
+
+    # ------------------------------------------------------------------
+    # Subida de un archivo
+    # ------------------------------------------------------------------
+
+    def _upload_one(self, service, file_path: Path,
+                    week_folder_id: str) -> tuple[str, bool]:
+        """Sube `file_path` a `week_folder_id`.
+
+        Retorna (file_id, skipped) donde skipped=True significa que el archivo
+        ya estaba en Drive y no se re-subió.
+
+        Levanta FileNotFoundError si el path local no existe. El llamador decide
+        si eso aborta la corrida o solo cuenta como un fallo más.
+        """
+        if not file_path.exists():
+            raise FileNotFoundError(f"No existe el archivo local: {file_path}")
+
+        filename = file_path.name
+
+        existing_id = self._file_already_exists(service, filename, week_folder_id)
+        if existing_id:
+            info(f"'{filename}' ya existe en Drive — subida omitida. "
+                 f"(ID: {existing_id})")
+            return existing_id, True
+
+        # NOTA: MediaFileUpload(resumable=True) ya reintenta chunks internamente
+        # DURANTE la subida en curso, pero un 5xx en el commit final del upload
+        # no lo reintenta desde adentro — ese es el hueco que _with_retry tapa.
+        metadata = {"name": filename, "parents": [week_folder_id]}
+        media = MediaFileUpload(str(file_path), mimetype=CSV_MIME, resumable=True)
+
+        uploaded = _with_retry(lambda: (
+            service.files()
+            .create(
+                body=metadata,
+                media_body=media,
+                fields="id, name",
+                supportsAllDrives=True,
+            )
+            .execute()
+        ))
+        ok(f"'{filename}' subido exitosamente. (ID: {uploaded['id']})")
+        return uploaded["id"], False
+
+    # ------------------------------------------------------------------
     # Punto de entrada público
     # ------------------------------------------------------------------
 
-    def run(self) -> str:
+    def run(self) -> dict[Path, str]:
         """
-        PR-A: resuelve (creando si hace falta) la carpeta año/semana destino y
-        devuelve su ID. NO sube archivos todavía — eso llega en PR-B.
+        Resuelve la carpeta año/semana y sube todos los `file_paths` ahí.
 
-        MEDULAR: propaga cualquier fallo. NO devuelve None ni captura
-        silenciosamente.
+        Retorna un dict {Path local: file ID en Drive} con los archivos que
+        quedaron en Drive — tanto los subidos en esta corrida como los omitidos
+        por ya existir. Los fallidos NO aparecen en el dict.
+
+        BEST-EFFORT CON RAISE FINAL: un fallo en el archivo N no interrumpe los
+        N+1..10. Al terminar, si hubo al menos un fallo, se lanza RuntimeError
+        con el resumen. Eso deja el Cloud Run Job en FAILED —contrato con la
+        alerta de Cloud Monitoring— sin desperdiciar el trabajo que sí salió.
+
+        Una lista vacía es un fallo, no un no-op: significa que el scraper no
+        produjo nada y nadie se enteró.
         """
+        if not self.file_paths:
+            raise ValueError(
+                "file_paths vacío — el scraper no produjo archivos. "
+                "Esto es un fallo del extract, no una corrida sin trabajo."
+            )
+
         service = self._get_drive_service()
-        return self._resolve_week_folder(service)
+        week_folder_id = self._resolve_week_folder(service)
+
+        results: dict[Path, str] = {}
+        failures: list[tuple[Path, Exception]] = []
+        skipped_count = 0
+
+        total = len(self.file_paths)
+        for idx, path in enumerate(self.file_paths, start=1):
+            print(f"[{idx}/{total}] {path.name}")
+            try:
+                file_id, skipped = self._upload_one(service, path, week_folder_id)
+                results[path] = file_id
+                if skipped:
+                    skipped_count += 1
+            except Exception as exc:
+                err(f"'{path.name}' falló: {type(exc).__name__}: {exc}")
+                failures.append((path, exc))
+
+        uploaded_count = len(results) - skipped_count
+
+        print(f"\n  📋  RESUMEN DE CARGA — {_year_folder_name(self.year)}/"
+              f"{_week_folder_name(self.week_number)}")
+        print(f"  {'─'*45}")
+        print(f"  Subidos   : {uploaded_count}")
+        print(f"  Omitidos  : {skipped_count}  (ya existían en Drive)")
+        print(f"  Fallidos  : {len(failures)}")
+        for path, exc in failures:
+            print(f"    ❌  {path.name}  —  {type(exc).__name__}: {exc}")
+
+        if failures:
+            detalle = "; ".join(
+                f"{p.name}: {type(e).__name__}" for p, e in failures
+            )
+            raise RuntimeError(
+                f"Carga a Drive incompleta: {len(failures)}/{total} archivos "
+                f"fallaron. Detalle: {detalle}"
+            )
+
+        return results
 
 
 # ------------------------------------------------------------------
@@ -293,14 +421,13 @@ class Pasos_load_to_drive:
 #
 # python -m load.loaders.Pasos_drive_loader
 #
-# Qué verificar en la UI de Drive después de correrlo:
-#   1. Que la carpeta de año existente NO se haya duplicado.
-#   2. Que la carpeta de semana se cree con el nombre esperado ('01' vs '1').
-#   3. Que una SEGUNDA corrida imprima "ya existe" en ambos niveles y devuelva
-#      exactamente el mismo week_folder_id.
+# Toma del directorio raw los CSV de Pasos que haya en disco y los sube a la
+# carpeta año/semana correspondiente. Correr DOS veces:
+#   1ra — todos "subidos".
+#   2da — todos "omitidos", mismo dict de IDs, exit code 0.
 
 if __name__ == "__main__":
-    from config.settings import DRIVE_PASOS_FOLDER_ID
+    from config.settings import RAW_PASOS_PATH, DRIVE_PASOS_FOLDER_ID
     from utils.dates import (
         last_completed_operational_week_cdmx,
         last_operational_week_number,
@@ -309,18 +436,19 @@ if __name__ == "__main__":
     start, _end = last_completed_operational_week_cdmx()
     week_numero = last_operational_week_number()
 
+    matches = sorted(RAW_PASOS_PATH.glob("pasos_*.csv"))
+    if not matches:
+        print(f"No se encontró ningún 'pasos_*.csv' en {RAW_PASOS_PATH}.")
+        raise SystemExit(1)
+
     print(f"Semana operativa: año={start.year} semana={week_numero}")
-    print(f"Carpetas objetivo: "
-          f"{_year_folder_name(start.year)}/{_week_folder_name(week_numero)}")
+    print(f"Archivos locales encontrados: {len(matches)}")
 
     loader = Pasos_load_to_drive(
-        file_paths=[],              # PR-A no los usa
+        file_paths=matches,
         root_folder_id=DRIVE_PASOS_FOLDER_ID,
         year=start.year,
         week_number=week_numero,
     )
-    week_folder_id = loader.run()
-
-    print(f"\n  📁  RESOLUCIÓN DE DESTINO")
-    print(f"  {'─'*45}")
-    print(f"  week_folder_id: {week_folder_id}")
+    resultado = loader.run()
+    print(f"\n  IDs en Drive: {len(resultado)}")
