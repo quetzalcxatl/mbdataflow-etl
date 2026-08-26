@@ -6,6 +6,7 @@ from pathlib import Path
 
 import time
 from datetime import datetime, timedelta
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import Select
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -32,6 +33,22 @@ LINEAS_OPERATIVAS = [
     'Línea 6', 'Línea 7', 'Línea A31', 'Línea C21', 'Línea H72',
 ]
 
+LINEA_SLUG = {
+    'Línea 1' : 'L1',
+    'Línea 2' : 'L2',
+    'Línea 3' : 'L3',
+    'Línea 4' : 'L4',
+    'Línea 5' : 'L5',
+    'Línea 6' : 'L6',
+    'Línea 7' : 'L7',
+    'Línea A31' : 'A31',
+    'Línea C21' : 'C21',
+    'Línea H72' : 'H72',
+}
+
+CENTRAL_IFRAME_CSS = "iframe[ng-src='#/preferencias/central']"
+XPATH_MENU_CENTRAL = "//*[@id='navbar-fixed-left']/ul/li[9]/ul/li/ul/li[1]/a[1]"
+
 class Pasos_Scraper(Extractor):
     """Download and load data for the Reporte_Pasos source."""
 
@@ -42,6 +59,7 @@ class Pasos_Scraper(Extractor):
     def __init__(self, config_path: Path | None = None) -> None:
         self.download_dir = RAW_PASOS_PATH
         self.download_dir.mkdir(parents=True, exist_ok=True)
+        self._pasos_iframe_id: str | None = None
 
     @staticmethod
     def _resolve_headless(is_cloud_run: bool) -> bool:
@@ -129,6 +147,12 @@ class Pasos_Scraper(Extractor):
         driver.save_screenshot(str(self.download_dir / "step9_menuitem_clicked.png"))
         # Wait for the report iframe to appear
         iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
+        # Capturamos el id del iframe de Pasos para poder volver a él de forma
+        # determinista tras visitar la Central (que monta un iframe adicional).
+        self._pasos_iframe_id = iframe.get_attribute("id")
+        if not self._pasos_iframe_id:
+            raise RuntimeError("El iframe del reporte de Pasos no tiene atributo id")
+        print(f"[IFRAME] Pasos montado en #{self._pasos_iframe_id}")
         driver.switch_to.frame(iframe)
         driver.save_screenshot(str(self.download_dir / "step10_Pasos_iframe.png")) # <- Checkpoint
 
@@ -289,6 +313,7 @@ class Pasos_Scraper(Extractor):
         wait.until(lambda d: d.find_element(
             By.XPATH, trigger_span_xpath
         ).text.strip() == linea_name)
+        driver.save_screenshot(str(self.download_dir / "step12_select_linea.png"))
 
     def _click_descargar_reporte(self, driver: webdriver.Chrome,
                              timeout: int = 20) -> None:
@@ -306,6 +331,7 @@ class Pasos_Scraper(Extractor):
             By.XPATH, "//button[normalize-space(.)='Descargar reporte']"
         )))
         driver.execute_script("arguments[0].click();", boton)
+        driver.save_screenshot(str(self.download_dir / "step13_Descargar_clicked.png"))
 
     def _confirm_download_modal(self, driver: webdriver.Chrome,
                             timeout: int = 15) -> None:
@@ -334,6 +360,259 @@ class Pasos_Scraper(Extractor):
         wait.until(EC.invisibility_of_element_located((
             By.XPATH, "//div[@role='dialog' and @data-state='open']"
         )))
+        driver.save_screenshot(str(self.download_dir / "step14_report_confirmed.png"))
+
+    def _focus_pasos_form(self, driver: webdriver.Chrome) -> None:
+        """Vuelve al iframe del formulario de Pasos.
+
+        El formulario sobrevive con fechas/horas puestas mientras su ventana
+        no se cierre — no hay que re-setear nada, solo re-entrar al iframe.
+        """
+        if not self._pasos_iframe_id:
+            raise RuntimeError("_pasos_iframe_id no inicializado — "
+                                "¿se llamó _navigate_to_report?")
+        wait = WebDriverWait(driver, 20)
+        driver.switch_to.default_content()
+        iframe = wait.until(EC.presence_of_element_located(
+            (By.ID, self._pasos_iframe_id)))
+        driver.switch_to.frame(iframe)
+        driver.save_screenshot(str(self.download_dir / "step16_pasos_form_focused.png"))
+
+
+
+    def _navigate_to_downloads(self, driver: webdriver.Chrome,
+                           timeout: int = 60) -> None:
+        """Abre la Central de Descargas y entra a su iframe, ya booteado.
+
+        El iframe de la Central tiene src hash-relativo ('#/preferencias/central'),
+        lo que hace que arranque la SPA de Sonda completa desde cero. El elemento
+        <iframe> existe en el DOM desde que jQuery UI crea el ui-dialog — mucho
+        antes de que su documento interno esté listo. Entrar sin gatear la
+        disponibilidad deja a Selenium operando sobre el documento inicial vacío.
+        """
+        wait = WebDriverWait(driver, 30)
+        driver.switch_to.default_content()
+
+        sidebar_icon = wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "img[src='img/fa-list.png']")))
+        driver.execute_script("arguments[0].click();", sidebar_icon)
+
+        menu_central = wait.until(EC.presence_of_element_located(
+            (By.XPATH, XPATH_MENU_CENTRAL)))
+        driver.execute_script("arguments[0].click();", menu_central)
+
+        self._enter_central_iframe(driver, timeout=timeout)
+        time.sleep(4)
+        driver.save_screenshot(str(self.download_dir / "step15_Central_Descargas_visible.png"))
+
+
+    def _enter_central_iframe(self, driver: webdriver.Chrome,
+                            timeout: int = 60) -> None:
+        """Entra al iframe de la Central esperando a que su documento esté listo.
+
+        Reintenta el switch: si entramos al documento inicial (pre-navegación),
+        salimos, re-localizamos el iframe y volvemos a entrar. Cada intento gatea
+        sobre readyState + presencia del formulario de consulta.
+        """
+        deadline = time.monotonic() + timeout
+        attempt = 0
+        last_state = "desconocido"
+
+        while time.monotonic() < deadline:
+            attempt += 1
+            driver.switch_to.default_content()
+            iframe = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, CENTRAL_IFRAME_CSS)))
+            driver.switch_to.frame(iframe)
+
+            try:
+                WebDriverWait(driver, 10).until(
+                    lambda d: d.execute_script("return document.readyState") == "complete")
+                WebDriverWait(driver, 10).until(EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "button[type=submit]")))
+                print(f"[CENTRAL] Iframe listo en el intento {attempt}")
+                return
+            except TimeoutException:
+                # Capturar en qué quedó el documento interno para el mensaje de error
+                last_state = driver.execute_script(
+                    "return document.readyState + ' | url=' + document.location.href"
+                    " + ' | iframes_anidados=' + document.querySelectorAll('iframe').length"
+                    " + ' | submit_btns=' + document.querySelectorAll('button[type=submit]').length"
+                )
+                print(f"[CENTRAL] Intento {attempt} sin éxito — {last_state}")
+                time.sleep(2)
+
+        raise TimeoutError(
+            f"El iframe de la Central no expuso 'button[type=submit]' en {timeout}s. "
+            f"Último estado interno: {last_state}"
+        )
+
+
+    
+    
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+
+
+    
+    
+    '''
+    def _navigate_to_downloads(self, driver: webdriver.Chrome) -> None:
+        """Abre la Central de Descargas y entra a su iframe.
+
+        Sale del iframe de Pasos (default_content) sin cerrar su ventana, abre
+        la Central desde el sidebar, y entra al iframe correcto por ng-src.
+        """
+        wait = WebDriverWait(driver, 30)
+        driver.switch_to.default_content()
+
+        sidebar_icon = wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "img[src='img/fa-list.png']")))
+        driver.execute_script("arguments[0].click();", sidebar_icon)
+
+        menu_central = wait.until(EC.presence_of_element_located(
+            (By.XPATH, XPATH_MENU_CENTRAL)))
+        driver.execute_script("arguments[0].click();", menu_central)
+
+        # Locator PRECISO — no By.TAG_NAME 'iframe': el multiaba mantiene vivo
+        # el iframe de Pasos y el primer match sería ese, no la Central.
+        iframe = wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, CENTRAL_IFRAME_CSS)))
+        driver.switch_to.frame(iframe)
+        time.sleep(4)
+        driver.save_screenshot(str(self.download_dir / "step16_Central_Descargas_visible.png"))
+    '''
+
+    def _close_downloads_window(self, driver: webdriver.Chrome) -> None:
+        """Cierra el ui-dialog de la Central de Descargas.
+
+        Deja el DOM en el mismo estado que antes de abrirla, de modo que cada
+        iteración del ciclo arranque desde condiciones idénticas.
+        """
+        wait = WebDriverWait(driver, 20)
+        driver.switch_to.default_content()
+
+        close_btn = wait.until(EC.element_to_be_clickable((
+            By.XPATH,
+            "//div[contains(@class,'ui-dialog')]"
+            "[.//iframe[@ng-src='#/preferencias/central']]"
+            "//button[contains(@class,'ui-dialog-titlebar-close')]"
+        )))
+        driver.execute_script("arguments[0].click();", close_btn)
+        wait.until(EC.invisibility_of_element_located(
+            (By.CSS_SELECTOR, CENTRAL_IFRAME_CSS)))
+
+    def _download_latest(self, driver: webdriver.Chrome, linea_slug: str,
+                     week_number: int, date_name: str,
+                     status_timeout: int = 600) -> Path:
+        """Pollea la Central hasta COMPLETO y descarga la fila más reciente.
+
+        Precondición: estamos dentro del iframe de la Central y acabamos de
+        encolar exactamente una solicitud — por eso 'la fila más reciente' es
+        inequívocamente la nuestra (ventaja del ciclo completo por línea).
+
+        status_timeout: cap de wall-clock para la generación del reporte.
+        Sin él, un reporte atorado en EN PROGRESO consumiría el task-timeout
+        completo del Cloud Run Job sin log accionable.
+        """
+        wait = WebDriverWait(driver, 30)
+        table_css = "table#example.table.responsive.tPainelEventos"
+        deadline = time.monotonic() + status_timeout
+
+        def click_query_button():
+            """Re-localiza y clickea el botón de consulta en cada llamada
+            para evitar referencias stale tras el re-render de Angular."""
+            btn = wait.until(EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "button[type=submit]")))
+            driver.execute_script("arguments[0].click();", btn)
+
+        click_query_button()
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, table_css)))
+        time.sleep(1)  # deja terminar el render del ng-repeat
+
+        # --- Polling de status ---
+        while True:
+            if time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"[{linea_slug}] La Central no reportó COMPLETO en "
+                    f"{status_timeout}s"
+                )
+
+            result = get_latest_row_status(driver, wait)
+            status = result['status']
+            print(f"[{linea_slug}][STATUS] {status}")
+
+            if status == 'COMPLETO':
+                break
+            elif status in ('EN PROGRESO', 'ESPERANDO INICIO'):
+                time.sleep(10)
+                click_query_button()
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, table_css)))
+            else:
+                raise RuntimeError(
+                    f"[{linea_slug}] Sonda reportó status inesperado: {status}"
+                )
+
+        # --- Disparar la descarga ---
+        rows = driver.find_elements(By.CSS_SELECTOR, "table.tPainelEventos tbody tr")
+        latest_row = rows[result['latest_row_index']]
+        latest_date = datetime.strptime(result['latest_date'], "%d/%m/%Y %H:%M:%S")
+
+        existing = set(self.download_dir.glob("*"))  # snapshot pre-descarga
+        download_link = latest_row.find_element(By.CSS_SELECTOR, "a.btn-links")
+        driver.execute_script("arguments[0].click();", download_link)
+        print(f"[{linea_slug}][DOWNLOAD] Disparada descarga del reporte fechado "
+            f"{latest_date.strftime('%d/%m/%Y %H:%M:%S')}")
+
+        # --- Esperar un .csv real (sin parciales) ---
+        file_timeout = 120
+        elapsed = 0
+        new_file = None
+        while elapsed < file_timeout:
+            new_files = set(self.download_dir.glob("*")) - existing
+            has_partial = any(f.suffix in ('.crdownload', '.tmp') for f in new_files)
+            real_csvs = [f for f in new_files if f.suffix == '.csv']
+            if real_csvs and not has_partial:
+                new_file = real_csvs[0]
+                break
+            time.sleep(1)
+            elapsed += 1
+        else:
+            raise TimeoutError(
+                f"[{linea_slug}] La descarga no completó en {file_timeout}s"
+            )
+
+        # --- Estabilización de tamaño ---
+        previous_size = -1
+        while True:
+            current_size = new_file.stat().st_size
+            if current_size == previous_size and current_size > 0:
+                break
+            previous_size = current_size
+            time.sleep(0.5)
+
+        # --- Rename al contrato de nomenclatura ---
+        target = self.download_dir / f"pasos_{linea_slug}_sem{week_number}_{date_name}.csv"
+        if target.exists():
+            target.unlink()
+        new_file.rename(target)
+        print(f"[{linea_slug}][OK] {target.name}")
+        return target
 
     # Make logout of Sonda platform
     def _logout(self, driver: webdriver.Chrome) -> None:
@@ -354,7 +633,7 @@ class Pasos_Scraper(Extractor):
 
 
     #---------------------------------Scrape_Method------------------------------------------
-    def scrape(self) -> None:
+    def scrape(self) -> list[Path]:
         from utils.dates import last_completed_operational_week_cdmx, last_operational_week_number
         start, end = last_completed_operational_week_cdmx()
         week_numero = last_operational_week_number()
@@ -364,43 +643,42 @@ class Pasos_Scraper(Extractor):
         dt_i = start.replace(second=0, microsecond=0)
         dt_f = (end - timedelta(minutes=1)).replace(second=0, microsecond=0)
 
-        print(f"Semana operativa: {start.strftime('%Y-%m-%d %H:%M %Z')} .. "
-            f"{end.strftime('%Y-%m-%d %H:%M %Z')}")
-        print(f"Filtro Pasos (semiabierto min): "
-            f"{dt_i.strftime('%Y-%m-%d %H:%M')} .. {dt_f.strftime('%Y-%m-%d %H:%M')}")
+        name_date = f"{start.strftime('%d%m%y')}_{end.strftime('%d%m%y')}"
+        downloaded: list[Path] = []
 
         driver = self._start_driver()
         try:
             self._login(driver)
             self._navigate_to_report(driver)
             self._request_datetime_interval(driver, dt_i, dt_f)
-            # PR-C: proof-of-concept con una sola línea (primera de la lista).
-            # La iteración completa sobre LINEAS_OPERATIVAS y el handling del
-            # archivo descargado (polling, rename) quedan para PR-D.
-            linea_test = LINEAS_OPERATIVAS[0]
-            print(f"[LINEA] Seleccionando: {linea_test}")
-            self._select_linea(driver, linea_test)
-            safe_name = linea_test.replace(' ', '_')
-            driver.save_screenshot(str(self.download_dir / f"step12_linea_{safe_name}.png"))
 
-            print("[DESCARGAR] Click en 'Descargar reporte' (espera habilitación)")
-            self._click_descargar_reporte(driver)
-            print("[LISTO] Click enviado")
-        
-            time.sleep(5)
-            driver.save_screenshot(str(self.download_dir / "step13_post_descargar.png"))
-            
-            self._confirm_download_modal(driver)
-            print(f"[ENCOLADO] Solicitud enviada para {linea_test}")
-            driver.save_screenshot(str(self.download_dir / "step14_post_guardar.png"))
+            # Ciclo completo por línea (Opción B): encolar → Central → esperar
+            # → descargar → cerrar Central → volver al formulario → siguiente.
+            # El formulario sobrevive con fechas/horas puestas: no se re-setea.
+            for idx, linea in enumerate(LINEAS_OPERATIVAS, start=1):
+                slug = LINEA_SLUG[linea]
+                print(f"\n=== [{idx}/{len(LINEAS_OPERATIVAS)}] {linea} ({slug}) ===")
 
-            # Selección de línea y Consultar: fuera del scope de PR-B
-            time.sleep(2)
+                self._select_linea(driver, linea)
+                self._click_descargar_reporte(driver)
+                self._confirm_download_modal(driver)
+                print(f"[{slug}][ENCOLADO] Solicitud enviada")
+
+                self._navigate_to_downloads(driver)
+                target = self._download_latest(driver, slug, week_numero, name_date)
+                downloaded.append(target)
+
+                self._close_downloads_window(driver)
+                self._focus_pasos_form(driver)
+
+            print(f"\n[RESUMEN] {len(downloaded)}/{len(LINEAS_OPERATIVAS)} "
+                f"reportes descargados")
+
             self._logout(driver)
         finally:
             driver.quit()
 
-        return None
+        return downloaded
 
 
 # Bloque que permite test execution 
