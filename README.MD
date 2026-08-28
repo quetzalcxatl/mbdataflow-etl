@@ -21,55 +21,115 @@ This monorepo contains data pipelines that extract operational data from Metrbú
 ```
 MBDataFlow_ETL/
 ├── config/
-│   ├── settings.py              # env vars + _runtime_path() helper
-│   └── credentials/             # gitignored
+│   ├── credentials/...
+│   ├── __init__.py
+│   ├── settings.py
+│   └── sonda_pv_config.json
+├── docs/
+│   ├── decision_log.md
+│   └── monitoring.md
+├── env/...
+│   ├── Scripts/...
+│   ├── .gitignore
+│   └── pyvenv.cfg
 ├── extract/
-│   ├── base.py                  # Extractor ABC
 │   ├── helpers/
-│   └── scrapers/
-│       └── Desincorporaciones.py
-|       └── Circuitos.py   
-├── transform/
-│   └── transformers/
+│   │   ├── download_helper.py
+│   │   └── intervalo_fecha_helper.py
+│   ├── scrapers/
+│   │   ├── __init__.py
+│   │   ├── CanBus.py
+│   │   ├── Circuitos.py
+│   │   ├── Desincorporaciones.py
+│   │   ├── FlotaVehicular.py
+│   │   ├── Pasos.py
+│   │   ├── recover_sonda_pv.py
+│   │   ├── Reporte_Viaje.py
+│   │   └── Reportes_Operador.py
+│   ├── __init__.py
+│   └── base.py
 ├── load/
-│   ├── base.py                  # Loader ABC
-│   └── loaders/
-│       └── Desincorporaciones_drive_loader.py
-│       └── Circuitos_drive_loader.py
+│   ├── loaders/
+│   │   ├── BigQuery_loader.py
+│   │   ├── CAN_drive_loader.py
+│   │   ├── Circuitos_drive_loader.py
+│   │   ├── debug_drive_loader.py
+│   │   ├── Desincorporaciones_drive_loader.py
+│   │   ├── google_drive_loader.py
+│   │   ├── Pasos_drive_loader.py
+│   │   ├── Reportes_Operador_drive_loader.py
+│   │   └── Viaje_drive_loader.py
+│   ├── schemas/
+│   │   └── viaje.py
+│   ├── __init__.py
+│   └── base.py
+├── logs/
 ├── pipelines/
-│   ├── pipeline_Desinc.py       # entrypoints invocables como python -m
+│   ├── __init__.py
+│   ├── pipeline_CanBus.py
 │   ├── pipeline_Circuitos.py
-│   ├── pipeline_CanBus.py                  # en pausa
-│   └── pipeline_rangofechas_canbus.py      # en pausa
+│   ├── pipeline_Desinc.py
+│   ├── pipeline_Pasos.py
+│   ├── pipeline_rangofechas_canbus.py
+│   └── pipeline_Viaje.py
+├── scripts/
+│   ├── audit_viaje_parity.py
+│   ├── deploy_circuitos.ps1
+│   ├── deploy_desinc.ps1
+│   ├── deploy_job_circuitos.ps1
+│   ├── deploy_job_desinc.ps1
+│   ├── deploy_job_pasos.ps1
+│   ├── deploy_job_viaje.ps1
+│   ├── deploy_pasos.ps1
+│   ├── deploy_viaje.ps1
+│   ├── setup_scheduler_circuitos.ps1
+│   ├── setup_scheduler_desinc.ps1
+│   ├── setup_scheduler_pasos.ps1
+│   ├── setup_scheduler_viaje.ps1
+│   ├── smoke_test_bigquery_loader.py
+│   └── smoketest_bq_sql_runner.py
+├── tests/
+│   ├── test_extract/
+│   ├── test_load/
+│   └── test_transform/
+├── transform/
+│   ├── sql/
+│   │   └── intervalos_dinamicos.sql
+│   ├── transformers/
+│   │   ├── __init__.py
+│   │   ├── CanBus.py
+│   │   ├── FlotaVehicular.py
+│   │   └── Reporte_Viaje.py
+│   ├── __init__.py
+│   ├── base.py
+│   └── bq_sql_runner.py
 ├── utils/
-│   ├── dates.py                 # yesterday_cdmx(), today_cdmx() · TZ-aware
+│   ├── __init__.py
+│   ├── dates.py
 │   ├── logger.py
 │   └── turno.py
-├── scripts/
-│   ├── deploy_desinc.ps1        # build + update job
-│   ├── deploy_job_desinc.ps1    # crear job (one-time)
-│   ├── setup_scheduler_desinc.ps1   
-|   ├── deploy_circuitos.ps1         
-│   ├── deploy_job_circuitos.ps1     
-│   └── setup_scheduler_circuitos.ps1
-├── docs/
-│   ├── architecture.html        # diagrama visual
-│   └── monitoring.md
-├── tests/                        # vacío
-├── Dockerfile                    # Python 3.13 + Chrome for Testing
+├── .dockerignore
+├── .env.example
+├── .gcloudignore
+├── .gitignore
+├── Architecture.md
 ├── cloudbuild.yaml
-├── requirements.txt              # versiones pineadas
-├── .env.example                  # template
-└── .env                          # gitignored
+├── Dockerfile
+├── LICENSE
+├── README.MD
+└── requirements.txt
 ```
 
 ## Pipelines
 
-| Pipeline | Description | Status |
-|---|---|---|
-| `pipeline_Desinc` | Vehicle disincorporation | ✅ Functional |
-| `pipeline_Circuitos` | Metrobus circuit reports | ✅ Functional |
-| Others | Various extractors and transformers | 🚧 In progress |
+| Pipeline | Tipo | Estado | Trigger |
+|---|---|---|---|
+| `pipeline_Desinc` | EL | Producción | Cloud Scheduler diario · 5:00 AM CDMX |
+| `pipeline_Circuitos` | EL | Producción | Cloud Scheduler semanal · 7:00 AM CDMX|
+| `pipeline_CanBus` | EL | Pausado · calidad de datos upstream | — |
+| `pipeline_rangofechas_canbus` | EL | Pausado · calidad de datos upstream | — |
+| `pipeline_Pasos` | EL | Producción | Cloud Scheduler semanal · 6:00 AM CDMX |
+| `pipeline_Viaje` | ETL-T | Local | - | 
 
 ## Deployment
 

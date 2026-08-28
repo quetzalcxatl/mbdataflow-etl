@@ -14,19 +14,20 @@ Monorepo de pipelines ETL/EL para datos operativos de Metrobús CDMX. Cada pipel
 
 | Pipeline | Tipo | Estado | Trigger |
 |---|---|---|---|
-| `pipeline_Desinc` | EL | ✅ Producción | Cloud Scheduler diario · 5:00 AM CDMX |
-| `pipeline_Circuitos` | EL | ✅ Producción | Cloud Scheduler semanal · 7:00 AM CDMX|
-| `pipeline_CanBus` | EL | 🧊 Pausado · calidad de datos upstream | — |
-| `pipeline_rangofechas_canbus` | EL | 🧊 Pausado · calidad de datos upstream | — |
-| Otros (`pipeline_Viaje`, `pipeline_ReporteOp`) | En desarrollo | 🚧 | — |
+| `pipeline_Desinc` | EL | Producción | Cloud Scheduler diario · 5:00 AM CDMX |
+| `pipeline_Circuitos` | EL | Producción | Cloud Scheduler semanal · 7:00 AM CDMX|
+| `pipeline_CanBus` | EL | Pausado · calidad de datos upstream | — |
+| `pipeline_rangofechas_canbus` | EL | Pausado · calidad de datos upstream | — |
+| `pipeline_Pasos` | EL | Producción | Cloud Scheduler semanal · 6:00 AM CDMX |
+| `pipeline_Viaje` | ETL-T | Local | - | 
 
 ---
 
 ## 3. Stack
 
-- **Lenguaje:** Python 3.13
+- **Lenguaje:** Python 3.13 y GoogleSQL
 - **Cloud:** GCP — Cloud Run Jobs, Cloud Build, Cloud Scheduler, Cloud Monitoring, Artifact Registry, Secret Manager
-- **Storage:** Google Drive (vía `google-api-python-client`), BigQuery (próximamente)
+- **Storage:** Google Drive (vía `google-api-python-client`), BigQuery (vía )
 - **Scraping:** Selenium 4 con Chrome for Testing
 - **Auth:** Service Account única (`mbdataflow-runner`) con ADC
 - **Config:** Variables de entorno + `python-dotenv` local, Secret Manager en producción
@@ -38,24 +39,17 @@ Monorepo de pipelines ETL/EL para datos operativos de Metrobús CDMX. Cada pipel
 ## 4. Estructura del repo
 
 ```
-Listo: arbol.txt (235 lineas)
-ig/
-│   ├── credentials/
-│   │   ├── credentials.json
-│   │   ├── sa-key.json
-│   │   └── token.json
+MBDataFlow_ETL/
+├── config/
+│   ├── credentials/...
 │   ├── __init__.py
 │   ├── settings.py
 │   └── sonda_pv_config.json
 ├── docs/
 │   ├── decision_log.md
 │   └── monitoring.md
-├── env/
-│   ├── Include/
-│   ├── Lib/
-│   │   ...
-│   ├── Scripts/
-│   │   ...
+├── env/...
+│   ├── Scripts/...
 │   ├── .gitignore
 │   └── pyvenv.cfg
 ├── extract/
@@ -68,6 +62,7 @@ ig/
 │   │   ├── Circuitos.py
 │   │   ├── Desincorporaciones.py
 │   │   ├── FlotaVehicular.py
+│   │   ├── Pasos.py
 │   │   ├── recover_sonda_pv.py
 │   │   ├── Reporte_Viaje.py
 │   │   └── Reportes_Operador.py
@@ -78,8 +73,10 @@ ig/
 │   │   ├── BigQuery_loader.py
 │   │   ├── CAN_drive_loader.py
 │   │   ├── Circuitos_drive_loader.py
+│   │   ├── debug_drive_loader.py
 │   │   ├── Desincorporaciones_drive_loader.py
 │   │   ├── google_drive_loader.py
+│   │   ├── Pasos_drive_loader.py
 │   │   ├── Reportes_Operador_drive_loader.py
 │   │   └── Viaje_drive_loader.py
 │   ├── schemas/
@@ -92,15 +89,23 @@ ig/
 │   ├── pipeline_CanBus.py
 │   ├── pipeline_Circuitos.py
 │   ├── pipeline_Desinc.py
+│   ├── pipeline_Pasos.py
 │   ├── pipeline_rangofechas_canbus.py
 │   └── pipeline_Viaje.py
 ├── scripts/
+│   ├── audit_viaje_parity.py
 │   ├── deploy_circuitos.ps1
 │   ├── deploy_desinc.ps1
 │   ├── deploy_job_circuitos.ps1
 │   ├── deploy_job_desinc.ps1
+│   ├── deploy_job_pasos.ps1
+│   ├── deploy_job_viaje.ps1
+│   ├── deploy_pasos.ps1
+│   ├── deploy_viaje.ps1
 │   ├── setup_scheduler_circuitos.ps1
 │   ├── setup_scheduler_desinc.ps1
+│   ├── setup_scheduler_pasos.ps1
+│   ├── setup_scheduler_viaje.ps1
 │   ├── smoke_test_bigquery_loader.py
 │   └── smoketest_bq_sql_runner.py
 ├── tests/
@@ -124,17 +129,13 @@ ig/
 │   ├── logger.py
 │   └── turno.py
 ├── .dockerignore
-├── .env
 ├── .env.example
 ├── .gcloudignore
 ├── .gitignore
-├── arbol.py
-├── arbol.txt
 ├── Architecture.md
 ├── cloudbuild.yaml
 ├── Dockerfile
 ├── LICENSE
-├── python_check.py
 ├── README.MD
 └── requirements.txt
 ```
@@ -206,6 +207,36 @@ Si el loader devuelve `None` (indicando fallo sin excepción), el pipeline lanza
 - Local: window mode, `prefs` para directorio de descarga.
 - Cloud Run: `--headless=new`, download path vía Chrome DevTools Protocol (`Page.setDownloadBehavior`). Headless ignora los `prefs` de descarga — usar CDP es obligatorio.
 
+
+### 5.10 Exclusión mutua entre pipelines contra Sonda
+
+La Central de Descargas de Sonda es **por cuenta, no por reporte**. Todos los
+scrapers que usan `SONDA_QUERY_USER` comparten la misma cola de solicitudes.
+
+Los scrapers identifican su propio archivo como "la fila más reciente de la
+tabla" (ver `Pasos_Scraper._download_latest`, `Viaje_Scraper._download`). Esa
+premisa se rompe si dos pipelines encolan solicitudes de forma solapada: el
+segundo puede descargar el archivo del primero **sin lanzar excepción** — el
+Job termina en SUCCESS con datos equivocados en Drive.
+
+**Decisión:** la separación es TEMPORAL, garantizada por Cloud Scheduler. No
+hay lock ni coordinación en código.
+
+| Job | Horario CDMX | Duración observada |
+|---|---|---|
+| `pipeline-desinc` | diario 05:00 | ~3 min |
+| `pipeline-pasos`  | lunes 06:00  | ~6 min |
+| `pipeline-circ`   | 07:00, día por confirmar | ~2 min |
+
+**Antes de agregar o mover cualquier Job que toque Sonda**, revisar
+`gcloud scheduler jobs list --location=us-central1` y verificar que la ventana
+[inicio, inicio + duración worst-case] no solape con ninguna otra.
+
+**Cuándo reconsiderar:** cuando haya 4+ pipelines contra Sonda, o cuando la
+duración de alguno se vuelva impredecible. La separación temporal deja de
+escalar y hará falta un lock real (Firestore, GCS object lock) o una segunda
+cuenta Sonda.
+
 ---
 
 ## 6. Topología de deployment
@@ -215,7 +246,7 @@ GitHub (main)
    │ git push
    ▼
 deploy_desinc.ps1
-   │ gcloud builds submit
+   │ gcloud builds s2ubmit
    ▼
 Cloud Build (cloudbuild.yaml)
    │ build + tag :sha + :latest
@@ -262,33 +293,6 @@ Cuando lleguemos a 3-4 pipelines en producción, conviene revisar acumulación d
 
 ---
 
-## 9. Roadmap
-
-### Overview
-- El objetivo es implementar un pipeline que alimente el Dashboard de Intervalos y ciertos directorios/bases remotos.
-
-- Para la implementación del pipeline de Intervalos `pipeline_Intervalos` (que emplea el reporte de Viaje), es necesario migrar rutas útiles de código de scripts en Colab. El proceso consta de diferentes métodos: Extract sobre la plataforma de Sonda :arrow_right: Load crudo a un directorio centralizado (sustituyendo ambos directorios de GO y de CC) :arrow_right: Transform del RV mediante los métodos migrados de Colab :arrow_right: Load hacia dos tablas distintas de BigQuery (INTERVALOS_Y_CUMPLIMIENTO, VIAJE).
-
-Una posible redundancia del proceso yace en que implementamos dos métodos de Load del reporte de Viaje en "crudo". El primero hacia Drive, antes del transform y el segundo (hacia BQ) durante el Transform hacia la tabla de VIAJE. Temporalmente se toma la decisión de dejar comentada la actualización de datos en la tabla VIAJE.
-
-### Inmediato
-- Se completa el método Extract de reportes de Viaje. El scraper `Reporte_Viaje`. 
-- Se implementa el proceso Load, hacia directorio centralizado MBDataFlow_ETL Drive.
-
-### Próximo
-- Se implementa el método Transform, que consiste en la migración, limpieza e implementación estructurada de código de notebooks en colab.
-
-### A mediano plazo
-- Se implementa el método Load a tablas 'INTERVALOS_Y_CUMPLIMIENTO' y 'VIAJE' de BigQuery. 
-- Construcción del orquestador `pipeline_Intervalos`.
-
-### Pospuesto
-- CI con GitHub Actions o Cloud Build triggers — revisar cuando haya tests o autorización institucional.
-- Tests automatizados de scrapers — requieren entorno con Chrome o mock muy elaborado, ROI bajo.
-- Transform layer real — solo cuando un pipeline necesite transformación no trivial.
-
----
-
 ## 10. Glosario de archivos clave
 
 | Archivo | Propósito |
@@ -305,4 +309,4 @@ Una posible redundancia del proceso yace en que implementamos dos métodos de Lo
 
 ## 11. Cómo se extiende/actualiza este documento
 
-Cuando se tome una decisión arquitectónica nueva (estructura, dependencia, patrón), se agrega como subsección de §5 con: **qué se decide, por qué, y cuándo reconsiderar**. De esta manera aseguramos tener honestidad sobre lo **trade-offs** o **decisiones**.
+Cuando se tome una decisión arquitectónica nueva (estructura, dependencia, patrón), se agrega como subsección de §5 con: **qué se decide, por qué, y cuándo reconsiderar**. De esta manera aseguramos tener honestidad sobre los **trade-offs** o **decisiones**.
