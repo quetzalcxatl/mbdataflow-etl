@@ -11,6 +11,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException
 from ..base import Extractor
 from ..helpers.download_helper import get_latest_row_status
 
@@ -18,6 +19,12 @@ from config.settings  import (SONDA_QUERY_USER,
                               SONDA_QUERY_PASSWORD,
                               RAW_VIAJE_PATH,
                               )
+
+# El iframe de la Central se localiza por ng-src, NO por By.TAG_NAME.
+# El ui-dialog del reporte de Viaje sigue vivo cuando se abre la Central:
+# hay dos <iframe> en el DOM y el primer match sería ambiguo.
+CENTRAL_IFRAME_CSS = "iframe[ng-src='#/preferencias/central']"
+XPATH_MENU_CENTRAL = "//*[@id='navbar-fixed-left']/ul/li[9]/ul/li/ul/li[1]/a[1]"
 
 
 class Viaje_Scraper(Extractor):
@@ -198,22 +205,71 @@ class Viaje_Scraper(Extractor):
     #------------------------------------------------------------------------------------------------------------------------
 
     # Query dashboard and download report
-    def _navigate_to_downloads(self, driver: webdriver.Chrome) -> None:
-        wait = WebDriverWait(driver, 20)
-        # Click the sidebar icon using JavaScript
-        sidebar_icon = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "img[src='img/fa-list.png']")))
+    def _navigate_to_downloads(self, driver: webdriver.Chrome,
+                               timeout: int = 60) -> None:
+        """Abre la Central de Descargas y entra a su iframe, ya booteado.
+
+        El iframe de la Central tiene src hash-relativo ('#/preferencias/central'),
+        lo que hace que arranque la SPA de Sonda completa desde cero. El elemento
+        <iframe> existe en el DOM desde que jQuery UI crea el ui-dialog — mucho
+        antes de que su documento interno esté listo. Entrar sin gatear la
+        disponibilidad deja a Selenium operando sobre el documento inicial vacío.
+        """
+        wait = WebDriverWait(driver, 30)
+        driver.switch_to.default_content()
+
+        sidebar_icon = wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "img[src='img/fa-list.png']")))
         driver.execute_script("arguments[0].click();", sidebar_icon)
-        # Navigate to the download dashboard
-        report_dashboard=wait.until(
-            EC.presence_of_element_located(
-                (By.XPATH, "//*[@id='navbar-fixed-left']/ul/li[9]/ul/li/ul/li[1]/a[1]")))
-        driver.execute_script("arguments[0].click();", report_dashboard)
 
-        iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
-        driver.switch_to.frame(iframe)
-        driver.save_screenshot(str(self.download_dir / "step16_download_dashboard.png"))
+        menu_central = wait.until(EC.presence_of_element_located(
+            (By.XPATH, XPATH_MENU_CENTRAL)))
+        driver.execute_script("arguments[0].click();", menu_central)
 
-        return None
+        self._enter_central_iframe(driver, timeout=timeout)
+        # Margen post-boot heredado de Pasos, validado en producción ahí.
+        # Quitarlo es una divergencia no validada; no se toca en este PR.
+        time.sleep(4)
+
+    def _enter_central_iframe(self, driver: webdriver.Chrome,
+                              timeout: int = 60) -> None:
+        """Entra al iframe de la Central esperando a que su documento esté listo.
+
+        Reintenta el switch: si entramos al documento inicial (pre-navegación),
+        salimos, re-localizamos el iframe y volvemos a entrar. Cada intento gatea
+        sobre readyState + presencia del formulario de consulta.
+        """
+        deadline = time.monotonic() + timeout
+        attempt = 0
+        last_state = "desconocido"
+
+        while time.monotonic() < deadline:
+            attempt += 1
+            driver.switch_to.default_content()
+            iframe = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, CENTRAL_IFRAME_CSS)))
+            driver.switch_to.frame(iframe)
+
+            try:
+                WebDriverWait(driver, 10).until(
+                    lambda d: d.execute_script("return document.readyState") == "complete")
+                WebDriverWait(driver, 10).until(EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "button[type=submit]")))
+                print(f"[CENTRAL] Iframe listo en el intento {attempt}")
+                return
+            except TimeoutException:
+                last_state = driver.execute_script(
+                    "return document.readyState + ' | url=' + document.location.href"
+                    " + ' | iframes_anidados=' + document.querySelectorAll('iframe').length"
+                    " + ' | submit_btns=' + document.querySelectorAll('button[type=submit]').length"
+                )
+                print(f"[CENTRAL] Intento {attempt} sin éxito — {last_state}")
+                time.sleep(2)
+
+        raise TimeoutError(
+            f"El iframe de la Central no expuso 'button[type=submit]' en {timeout}s. "
+            f"Último estado interno: {last_state}"
+        )
     
     #------------------------------------------------------------------------------------------------------------------------
 
