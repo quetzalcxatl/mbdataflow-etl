@@ -95,7 +95,7 @@ RAW_PASOS_PATH             = _runtime_path(PROJECT_ROOT / "data" / "raw" / "down
                                            
 # --- SQL remote transform layers ----------------------------------------
 # In this section we add the location of SQL queries that runs over remote warehouse
-SQL_INTERVALOSDINAMICOS_PATH = _runtime_path(PROJECT_ROOT / "transform" / "sql" / "intervalos_dinamicos.sql")
+SQL_INTERVALOSDINAMICOS_PATH = PROJECT_ROOT / "transform" / "sql" / "intervalos_dinamicos.sql"
 
 
 # Static configuration (not environment-dependent) ---------------
