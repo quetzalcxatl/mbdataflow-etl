@@ -75,31 +75,28 @@ class Viaje_Scraper(Extractor):
     # Proceso de logeado en la página de Sinoptico
     def _login(self, driver: webdriver.Chrome) -> None:
         driver.get("https://cdmx.sinopticoplus.com/#/")
-        wait = WebDriverWait(driver, 60)  # Increased timeout espera a que cargue
-        # Always save a screenshot after loading
-        #driver.save_screenshot(str(self.download_dir / "step1_loaded.png"))
-        # Save page source for debugging
-        with open(self.download_dir / "step1_source.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
+        wait = WebDriverWait(driver, 60)
         try:
-            # Wait for the login form to be present
             username_input = wait.until(EC.presence_of_element_located((By.NAME, "login")))
-            #driver.save_screenshot(str(self.download_dir / "step2_username_found.png"))
             password_input = wait.until(EC.presence_of_element_located((By.NAME, "password")))
-            #driver.save_screenshot(str(self.download_dir / "step3_password_found.png"))
-            username_input.send_keys(SONDA_QUERY_USER) # Credentials
+            username_input.send_keys(SONDA_QUERY_USER)
             password_input.send_keys(SONDA_QUERY_PASSWORD)
-            #driver.save_screenshot(str(self.download_dir / "step4_credentials_entered.png"))
-            login_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
-            #driver.save_screenshot(str(self.download_dir / "step5_before_click.png"))
+            login_btn = wait.until(EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "button[type='submit']")))
             login_btn.click()
-            #driver.save_screenshot(str(self.download_dir / "step6_after_click.png"))
         except Exception as e:
-            #driver.save_screenshot(str(self.download_dir / "login_error.png"))
-            with open(self.download_dir / "login_error_source.html", "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
+            # El estado va al log, no al disco: en Cloud Run el filesystem se
+            # evapora, stdout sobrevive en Cloud Logging.
+            try:
+                estado = driver.execute_script(
+                    "return document.readyState"
+                    " + ' | url=' + document.location.href"
+                    " + ' | inputs=' + document.querySelectorAll('input').length"
+                )
+            except Exception:
+                estado = "no se pudo inspeccionar el documento"
             raise RuntimeError(
-                "Login form not found. Check if the site structure has changed or if the page is reachable."
+                f"Login form not found. Estado del documento: {estado}"
             ) from e
         
     # Navegamos al reporte de Viaje
