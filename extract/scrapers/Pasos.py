@@ -458,29 +458,6 @@ class Pasos_Scraper(Extractor):
             f"El iframe de la Central no expuso 'button[type=submit]' en {timeout}s. "
             f"Último estado interno: {last_state}"
         )
-
-
-    
-    
-    
-    
-    
-
-
-
-
-
-
-
-
-
-
-
-    
-
-
-
-
     
     
     '''

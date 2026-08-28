@@ -33,12 +33,24 @@ class Viaje_Scraper(Extractor):
 
     @staticmethod
     def _resolve_headless(is_cloud_run: bool) -> bool:
-        "Resuelve/determina si Chrome corre headless. DESACOPLADO de la detección"
-        "de Cloud Run"
+        """Resuelve si Chrome corre headless.
+
+        En Cloud Run NO hay display: headless es obligatorio y no se puede
+        anular. `SCRAPER_HEADLESS` solo tiene efecto en local, donde sirve
+        para ver el navegador durante el debug del SPA.
+
+        Precedencia:
+          1. Cloud Run detectado      -> True, sin excepción.
+          2. SCRAPER_HEADLESS seteada -> lo que diga (solo local).
+          3. Default                  -> True.
+        """
+        if is_cloud_run:
+            return True
+
         override = os.environ.get("SCRAPER_HEADLESS")
         if override is not None:
             return override.strip().lower() in ("1", "true", "yes", "on")
-        return is_cloud_run
+        return True
         
     # Private sub-method
     # Instanciate Chrome Webdriver throught Selenium package
@@ -51,13 +63,13 @@ class Viaje_Scraper(Extractor):
 
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        
+
         if headless:
             options.add_argument("--headless=new")
             options.add_argument("--disable-gpu")
             options.add_argument("--window-size=1366,768")
             driver = webdriver.Chrome(options=options)
-            # Headless Chrome ignores download prefs — must use CDP
+            # Headless Chrome ignora las download prefs — hay que usar CDP.
             driver.execute_cdp_cmd(
                 "Page.setDownloadBehavior",
                 {"behavior": "allow", "downloadPath": str(self.download_dir)},
