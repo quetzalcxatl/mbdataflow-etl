@@ -25,7 +25,7 @@ gcloud projects add-iam-policy-binding $PROJECT_ID `
 # early Monday and now belongs to the closing operational week.
 gcloud scheduler jobs create http pipeline-viaje-weekly `
   --location=$REGION `
-  --schedule="0 5 * * 1" `
+  --schedule="0 4 * * 1" `
   --time-zone="America/Mexico_City" `
   --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_ID/jobs/pipeline-viaje:run" `
   --http-method=POST `
