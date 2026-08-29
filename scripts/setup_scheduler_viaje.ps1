@@ -30,7 +30,7 @@ gcloud scheduler jobs create http pipeline-viaje-weekly `
   --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_ID/jobs/pipeline-viaje:run" `
   --http-method=POST `
   --oauth-service-account-email=$SA_EMAIL `
-  --attempt-deadline="35m"
+  --attempt-deadline="30m"
 
 Write-Host "Scheduler created. View with:"
 Write-Host "  gcloud scheduler jobs list --location=$REGION"
