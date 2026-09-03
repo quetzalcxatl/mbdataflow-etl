@@ -19,6 +19,18 @@ from utils.dates import yesterday_cdmx
 from ..base import Extractor
 from config.settings import SONDA_QUERY_USER, SONDA_QUERY_PASSWORD, RAW_DESINC_PATH
 
+# --- Constates de módulo -----------------------------------------------
+SERVICIO_DESINCORPORACION = "Desincorporacion"
+SERVICIO_APOYO = "Apoyo"
+
+SERVICIO_CONTAINER_CSS = "#inputCategoria"
+
+SERVICIO_TRIGGER_CSS = "#inputCategoria a.select2-choice"
+
+SERVICIO_MATCH_CSS = "#inputCategoria a.ui-select-match span.select2-chosen[ng-transclude]"
+
+SERVICIO_OPEN_CSS = "#inputCategoria.open"
+
 class Desincorporaciones_Scraper(Extractor):
     """Download from the Sonda_CanData source."""
 
@@ -114,11 +126,47 @@ class Desincorporaciones_Scraper(Extractor):
         # Un-comment only if _request_report_by_date() is deactivated in scrape() last method:
         #driver.switch_to.default_content()
 
+    def _select_servicio(self, driver:webdriver.Chrome, servicio: str, timeout: int = 20) -> None:
+        """
+        Selecciona un valor del ui-select 'Servicio'. El campo pasó de tener un valor a tener dos,
+        ('Desincorporacion', 'Apoyo'). El orden abrir -> localizar es obligatorio.
+        """
+        wait = WebDriverWait(driver, timeout)
+        trigger = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, SERVICIO_TRIGGER_CSS)))
+        driver.execute_script("arguments[0].click();", trigger)
+
+        # El contenedor alcanza la clase 'open' en el mismo digest que puebla
+        # gating evita buscar opciones del DOM apun vacío
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, SERVICIO_OPEN_CSS)))
+
+        # normalize-space(.) sobre el <div>, no text(): ng-bind-html pasa por
+        # el filtro `highlight`, que con search vacío rinde texto plano pero
+        # que si algún día se habilita el buscador partiría el nodo de texto
+        # inyectando <span class="select2-match">.
+        option_xpath = (
+            "//*[@id='inputCategoria']"
+            "//li[contains(@class, 'ui-select-choices-row')]"
+            f"[.//div[normalize-space(.)='{servicio}']]"
+        )
+        option = wait.until(EC.element_to_be_clickable((By.XPATH, option_xpath)))
+        driver.execute_script("arguments[0].click()", option)
+
+        # Post-condición. Sin ella, un click que no dispara el digest de
+        # Angular pasa inadvertido y el CSV baja con el servicio equivocado,
+        # sin error y con el nombre correcto. El .strip() es necesario: el
+        # span trae salto de línea e indentación del template.
+        wait.until(lambda d: d.find_element(
+            By.CSS_SELECTOR, SERVICIO_MATCH_CSS).text.strip() == servicio)
+        print(f"[SERVICIO] {servicio}")
+        
 
     # Request report verifying actual date
     def _download_report_by_date_and_hour(
             self, driver: webdriver.Chrome, i_date: str, f_date: str, i_hour: str, f_hour: str, name_date: str) -> None:
         wait = WebDriverWait(driver, 20)
+
+        # Antes de seleccionar las fechas el contenedor declara el tipo Desincorporaciones
+        self._select_servicio(driver, SERVICIO_DESINCORPORACION)
 
         i_date_input = wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "input[ng-model='dateStart']"))
