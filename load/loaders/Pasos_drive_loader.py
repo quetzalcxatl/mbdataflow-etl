@@ -22,20 +22,14 @@ FINAL: se intentan los 10 archivos, se acumulan los fallos, y si hubo al menos
 uno se lanza RuntimeError al final. El Job queda FAILED (dispara la alerta de
 Cloud Monitoring) pero los archivos que sí pudieron subir quedan subidos —
 la re-corrida solo tiene que atacar los que faltan. Ver `run()`.
-
-DEUDA CONOCIDA: `_is_transient` / `_with_retry` están duplicados desde
-`Viaje_drive_loader.py`. Extraer a un módulo compartido es un refactor
-deliberadamente fuera del scope de estos PRs.
 '''
-
-import time
 import warnings
 from pathlib import Path
 
 import google.auth
 from googleapiclient.discovery import build
-from googleapiclient.errors    import HttpError
 from googleapiclient.http      import MediaFileUpload
+from load.loaders._drive_retry import _with_retry
 
 from utils.logger import ok, info, err
 
@@ -54,12 +48,6 @@ DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 CSV_MIME    = "text/csv"
-
-# HTTP status codes que representan fallos temporales del servidor o rate-limits.
-# Los 4xx que NO están aquí (401, 403, 404, 400) son config incorrecta y no se
-# reintentan: reintentar no cambia el desenlace.
-_TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
-
 
 # ------------------------------------------------------------------
 # Convención de nombres de carpeta
@@ -82,47 +70,6 @@ def _week_folder_name(week_number: int) -> str:
     """
     return f"{week_number:02d}"
 
-
-# ------------------------------------------------------------------
-# Política de reintentos para llamadas al Drive API
-# (duplicado de Viaje_drive_loader — ver DEUDA CONOCIDA arriba)
-# ------------------------------------------------------------------
-
-def _is_transient(exc: Exception) -> bool:
-    """True si la excepción representa un fallo transitorio que vale reintentar."""
-    if isinstance(exc, HttpError):
-        return exc.resp.status in _TRANSIENT_STATUS
-    # Errores a nivel red: la petición nunca llegó al servidor o la respuesta
-    # nunca volvió. Siempre transitorios.
-    return isinstance(exc, (ConnectionError, TimeoutError, OSError))
-
-
-def _with_retry(fn, *, attempts: int = 3, base_delay: float = 2.0):
-    """
-    Ejecuta `fn()` reintentando SOLO errores transitorios con backoff exponencial
-    (2s, 4s, 8s por default).
-
-    - Errores permanentes (4xx que no sean 429): propagan en el primer intento.
-    - Errores transitorios: hasta `attempts` intentos; si todos fallan, propaga
-      el último.
-
-    No se captura BaseException; solo Exception. Ctrl+C sigue interrumpiendo.
-    """
-    for attempt in range(1, attempts + 1):
-        try:
-            return fn()
-        except Exception as exc:
-            if not _is_transient(exc):
-                raise  # permanente → propaga sin reintentar
-            if attempt == attempts:
-                raise  # agotamos los reintentos
-            delay = base_delay * (2 ** (attempt - 1))
-            warnings.warn(
-                f"Drive: intento {attempt}/{attempts} falló "
-                f"({type(exc).__name__}); reintento en {delay:.0f}s",
-                RuntimeWarning,
-            )
-            time.sleep(delay)
 
 
 def _escape_q(value: str) -> str:
