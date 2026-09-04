@@ -160,84 +160,67 @@ class Desincorporaciones_Scraper(Extractor):
         print(f"[SERVICIO] {servicio}")
         
 
-    # Request report verifying actual date
-    def _download_report_by_date_and_hour(
-            self, driver: webdriver.Chrome, i_date: str, f_date: str, i_hour: str, f_hour: str, name_date: str) -> None:
+    # -- Etapas del ciclo de reporte ---------------------------------------------------------------
+    
+    def _set_date_hour_interval(self, driver: webdriver.Chrome, 
+                                i_date: str, f_date: str,
+                                i_hour: str, f_hour: str) -> None:
+        """Llena los cuatro campos del intervalo fecha/hora"""
         wait = WebDriverWait(driver, 20)
 
-        # Antes de seleccionar las fechas el contenedor declara el tipo Desincorporaciones
-        self._select_servicio(driver, SERVICIO_DESINCORPORACION)
+        for css, valor in (
+            ("input[ng-model='dateStart']", i_date),
+            ("input[ng-model='faixaHoraInicial']", i_hour),
+            ("input[ng-model='dateEnd']", f_date),
+            ("input[ng-model='faixaHoraFinal']", f_hour),
+        ):
+            campo = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, css)))
+            driver.save_screenshot(str(self.download_dir / f"step_{css}_located.png"))
+            campo.clear()
+            campo.send_keys(valor)
+            driver.save_screenshot(str(self.download_dir / f"step_{css}_filled.png"))
 
-        i_date_input = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[ng-model='dateStart']"))
-        )
-        driver.save_screenshot(str(self.download_dir / "step11_initial_datebox_localized.png"))
-        i_date_input.clear()
-        i_date_input.send_keys(i_date)
-        driver.save_screenshot(str(self.download_dir / "step12_inital_date_validated.png"))
-
-        i_hour_input = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[ng-model='faixaHoraInicial']"))
-        )
-        driver.save_screenshot(str(self.download_dir / "step13_initial_hourbox_localized.png"))
-        i_hour_input.clear()
-        i_hour_input.send_keys(i_hour)
-        driver.save_screenshot(str(self.download_dir / "step14_inital_hour_validated.png"))
-
-        f_date_input = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[ng-model='dateEnd']"))
-        )
-        driver.save_screenshot(str(self.download_dir / "step15_final_datebox_localized.png"))
-        f_date_input.clear()
-        f_date_input.send_keys(f_date)
-        driver.save_screenshot(str(self.download_dir / "step16_final_date_validated.png"))
-
-        f_hour_input = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[ng-model='faixaHoraFinal']"))
-        )
-        driver.save_screenshot(str(self.download_dir / "step17_final_hourbox_localized.png"))
-        f_hour_input.clear()
-        f_hour_input.send_keys(f_hour)
-        driver.save_screenshot(str(self.download_dir / "step18_final_hour_validated.png"))
-
-        wait.until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "button[ng-click='consultar']")
-            )
-        ).click()
+    def _consultar(self, driver: webdriver.Chrome) -> None:
+        """Dispara la consulta con los filtros ya puestos"""
+        wait = WebDriverWait(driver, 20)
+        wait.until(EC.element_to_be_clickable(
+                   (By.CSS_SELECTOR, "button[ng-click='consultar']"))).click()
         time.sleep(1)
-        driver.save_screenshot(str(self.download_dir / "step19_requested.png"))
-        #driver.switch_to.default_content()
 
-        existing = set(self.download_dir.glob("*")) # Snapshot antes de la descarga
-        #Lo encuentra pero no acciona ninguna descarga.....
-        action_download = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "span[ng-csv = 'gerarCsvDesincorporacion()']")))
-        driver.execute_script("arguments[0].click();", action_download)
-        driver.save_screenshot(str(self.download_dir / "step20_actionaded_download.png"))
-        #time.sleep(5)
+    def _download_csv(self, driver: webdriver.Chrome, prefijo: str, name_date: str,
+                      file_timeout: int = 120) -> Path:
+        """Dispara la descarga, espera el .csv real y lo renombra.
         
-        # --- Poll until a real .csv appears (no partials) ---
-        timeout = 120
-        interval = 1
+        `prefijo` define el nombre final: `{prefijo}_{name_date}.csv`
+        Así los archivos de cada servicio quedan sepparados por nombre y 
+        los ciclos de descarga por servicio no confunden las descargas ya
+        existentes."""
+        wait = WebDriverWait(driver, 20)
+
+        existing = set(self.download_dir.glob("*"))  # snapshot pre-descarga
+
+        action_download = wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "span[ng-csv = 'gerarCsvDesincorporacion()']")))
+        driver.execute_script("arguments[0].click();", action_download)
+
+        # -- Esperar un .csv real (sin parciales) ---
         elapsed = 0
-
-        while elapsed < timeout:
-            current_files = set(self.download_dir.glob("*"))
-            new_files = current_files - existing
-
+        new_file = None
+        while elapsed < file_timeout:
+            new_files = set(self.download_dir.glob("*")) - existing
             has_partial = any(f.suffix in ('.crdownload', '.tmp') for f in new_files)
             real_csvs = [f for f in new_files if f.suffix == '.csv']
-
             if real_csvs and not has_partial:
                 new_file = real_csvs[0]
                 break
-
-            time.sleep(interval)
-            elapsed += interval
+            time.sleep(1)
+            elapsed += 1
         else:
-            raise TimeoutError(f"Download did not complete within {timeout} seconds.")
+            raise TimeoutError(
+                f"[{prefijo}] La descarga no se completó en {file_timeout}s"
+            )
 
-        # --- Size stabilization: wait until file stops growing ---
+        # -- Estabilización del tamaño ---
         previous_size = -1
         while True:
             current_size = new_file.stat().st_size
@@ -246,12 +229,28 @@ class Desincorporaciones_Scraper(Extractor):
             previous_size = current_size
             time.sleep(0.5)
 
-        # --- Rename directly, no second file ---
-        target = self.download_dir / f"Desinc_{name_date}.csv"
+        target = self.download_dir / f"{prefijo}_{name_date}.csv"
         if target.exists():
             target.unlink()
         new_file.rename(target)
+        print(f"[{prefijo}][OK] {target.name}")
         return target
+
+    # -- Ciclo completo por servicio ----------------------
+    def _run_report_cycle(self, driver: webdriver.Chrome, *,
+                      servicio: str, prefijo: str,
+                      i_date: str, f_date: str,
+                      i_hour: str, f_hour: str,
+                      name_date: str) -> Path:
+        """Ejecuta un ciclo completo de reporte para un valor de 'Servicio.
+        Orden: servicio -> intervalo -> consultar -> descargar. Autocontenido:
+        no asume nada del estado que dejó el servicio anterior.'"""
+
+        print(f"\n === Ciclo: {servicio} -> {prefijo}_{name_date}.csv ===")
+        self._select_servicio(driver, servicio)
+        self._set_date_hour_interval(driver, i_date, f_date, i_hour, f_hour)
+        self._consultar(driver)
+        return self._download_csv(driver, prefijo, name_date)
         
 
 
@@ -283,21 +282,19 @@ class Desincorporaciones_Scraper(Extractor):
         try:
             self._login(driver)
             self._navigate_to_report(driver)
-            self._download_report_by_date_and_hour(driver, date_str, date_str, '000000', '235959', date_str_)
-            #self._navigate_to_downloads(driver)
-            #self._download(driver, date_str_)
+            desinc_csv = self._run_report_cycle(driver,
+                                                servicio=SERVICIO_DESINCORPORACION,
+                                                prefijo="Desinc",
+                                                i_date=date_str, f_date=date_str,
+                                                i_hour='000000', f_hour='235959',
+                                                name_date=date_str_,
+                                                )
 
             time.sleep(1)
             self._logout(driver)
         finally:
             driver.quit()
         
-        '''loader = CAN_load_to_drive(
-            download_dir=self.download_dir,
-            parent_folder_id=self.parent_folder_id,
-        )
-        file_id = loader.run()'''
-
         return None    
 
 # Bloque que permite test execution 
