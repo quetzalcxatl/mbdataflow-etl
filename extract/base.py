@@ -23,7 +23,7 @@ class Extractor(ABC):
     #def load(self, transformed_data):
     #    """Load the transformed data into its destination."""
 
-    def run(self) -> None:
+    def run(self) -> Any:
         """Execute the extraction (in general) steps."""
         return self.scrape()
         #raw_data = self.scrape()
