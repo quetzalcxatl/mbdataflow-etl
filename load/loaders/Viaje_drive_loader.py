@@ -18,67 +18,17 @@ hacer con ellos. Ver `pipeline_Viaje._drive_backup`.
 
 Reintentos: se distingue TRANSITORIO (5xx / 429 / red) de PERMANENTE (4xx auth,
 permisos, config). Solo lo transitorio se reintenta con backoff exponencial;
-lo permanente falla en el primer intento. Ver `_with_retry` abajo.
+lo permanente falla en el primer intento. Ver `load.loaders._drive_retry.py`.
 '''
 
-import time
-import warnings
 from pathlib import Path
 
 import google.auth
 from googleapiclient.discovery import build
-from googleapiclient.errors    import HttpError
 from googleapiclient.http      import MediaFileUpload
+from load.loaders._drive_retry import _with_retry
 
 from utils.logger import ok, info, err
-
-
-# ------------------------------------------------------------------
-# Política de reintentos para llamadas al Drive API
-# ------------------------------------------------------------------
-
-# HTTP status codes que representan fallos temporales del servidor o rate-limits.
-# Google recomienda backoff exponencial para todos ellos.
-# Los 4xx que NO están aquí (401, 403, 404, 400) son config incorrecta y no se
-# reintentan: reintentar no cambia el desenlace y alarga la agonía.
-_TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
-
-
-def _is_transient(exc: Exception) -> bool:
-    """True si la excepción representa un fallo transitorio que vale reintentar."""
-    if isinstance(exc, HttpError):
-        return exc.resp.status in _TRANSIENT_STATUS
-    # Errores a nivel red: la petición nunca llegó al servidor o la respuesta
-    # nunca volvió. Siempre transitorios.
-    return isinstance(exc, (ConnectionError, TimeoutError, OSError))
-
-
-def _with_retry(fn, *, attempts: int = 3, base_delay: float = 2.0):
-    """
-    Ejecuta `fn()` reintentando SOLO errores transitorios con backoff exponencial
-    (2s, 4s, 8s por default).
-
-    - Errores permanentes (4xx que no sean 429): propagan en el primer intento.
-    - Errores transitorios: hasta `attempts` intentos; si todos fallan, propaga
-      el último.
-
-    No se captura BaseException; solo Exception. Ctrl+C sigue interrumpiendo.
-    """
-    for attempt in range(1, attempts + 1):
-        try:
-            return fn()
-        except Exception as exc:
-            if not _is_transient(exc):
-                raise  # permanente → propaga sin reintentar
-            if attempt == attempts:
-                raise  # agotamos los reintentos
-            delay = base_delay * (2 ** (attempt - 1))
-            warnings.warn(
-                f"Drive: intento {attempt}/{attempts} falló "
-                f"({type(exc).__name__}); reintento en {delay:.0f}s",
-                RuntimeWarning,
-            )
-            time.sleep(delay)
 
 
 # ==================================================================
