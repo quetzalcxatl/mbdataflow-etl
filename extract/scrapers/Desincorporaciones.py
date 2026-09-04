@@ -8,7 +8,6 @@ import os
 import time
 from pathlib import Path
 
-import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -272,7 +271,7 @@ class Desincorporaciones_Scraper(Extractor):
         driver.save_screenshot(str(self.download_dir / "logout3_logout_confirmed.png"))
 
 #---------------------------------Scrape_Method------------------------------------------
-    def scrape(self) -> None:
+    def scrape(self) -> Path:
         """Scrape data from the Sonda website for the previous day."""
         target_date = yesterday_cdmx()
         date_str  = target_date.strftime("%d%m%Y")
@@ -295,7 +294,7 @@ class Desincorporaciones_Scraper(Extractor):
         finally:
             driver.quit()
         
-        return None    
+        return desinc_csv    
 
 # Bloque que permite test execution 
 # En prompt invocas python -m extract.scrapers.Desincorporaciones
