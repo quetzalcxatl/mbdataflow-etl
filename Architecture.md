@@ -14,12 +14,12 @@ Monorepo de pipelines ETL/EL para datos operativos de Metrobús CDMX. Cada pipel
 
 | Pipeline | Tipo | Estado | Trigger |
 |---|---|---|---|
-| `pipeline_Desinc` | EL | Producción | Cloud Scheduler diario · 5:00 AM CDMX |
-| `pipeline_Circuitos` | EL | Producción | Cloud Scheduler semanal · 7:00 AM CDMX|
+| `pipeline_Viaje` | ETL-T | Producción | Cloud Scheduler semanal · 4:00 am CDMX| 
+| `pipeline_Desinc` | EL | Producción | Cloud Scheduler diario · 5:00 am CDMX |
+| `pipeline_Pasos` | EL | Producción | Cloud Scheduler semanal · 6:00 am CDMX |
+| `pipeline_Circuitos` | EL | Producción | Cloud Scheduler semanal · 7:00 am CDMX|
 | `pipeline_CanBus` | EL | Pausado · calidad de datos upstream | — |
 | `pipeline_rangofechas_canbus` | EL | Pausado · calidad de datos upstream | — |
-| `pipeline_Pasos` | EL | Producción | Cloud Scheduler semanal · 6:00 AM CDMX |
-| `pipeline_Viaje` | ETL-T | Local | - | 
 
 ---
 
@@ -224,9 +224,10 @@ hay lock ni coordinación en código.
 
 | Job | Horario CDMX | Duración observada |
 |---|---|---|
-| `pipeline-desinc` | diario 05:00 | ~3 min |
+| `pipeline-viaje`  | lunes 04:00  | ~10 min|
+| `pipeline-desinc` | diario 05:00 | ~5 min |
 | `pipeline-pasos`  | lunes 06:00  | ~6 min |
-| `pipeline-circ`   | 07:00, día por confirmar | ~2 min |
+| `pipeline-circ`   | lunes 07:00  | ~2 min |
 
 **Antes de agregar o mover cualquier Job que toque Sonda**, revisar
 `gcloud scheduler jobs list --location=us-central1` y verificar que la ventana
