@@ -22,6 +22,12 @@ from config.settings import SONDA_QUERY_USER, SONDA_QUERY_PASSWORD, RAW_DESINC_P
 SERVICIO_DESINCORPORACION = "Desincorporacion"
 SERVICIO_APOYO = "Apoyo"
 
+# --- Declara el orden de los servicios a extraer -----------------------
+SERVICIOS = (
+    (SERVICIO_DESINCORPORACION, "Desinc"),
+    (SERVICIO_APOYO, "Apoyo"),
+)
+
 SERVICIO_CONTAINER_CSS = "#inputCategoria"
 
 SERVICIO_TRIGGER_CSS = "#inputCategoria a.select2-choice"
@@ -157,11 +163,13 @@ class Desincorporaciones_Scraper(Extractor):
         wait.until(lambda d: d.find_element(
             By.CSS_SELECTOR, SERVICIO_MATCH_CSS).text.strip() == servicio)
         print(f"[SERVICIO] {servicio}")
+        driver.save_screenshot(str(self.download_dir / f"{servicio}_selected.png"))
         
 
     # -- Etapas del ciclo de reporte ---------------------------------------------------------------
     
-    def _set_date_hour_interval(self, driver: webdriver.Chrome, 
+    def _set_date_hour_interval(self, driver: webdriver.Chrome,
+                                servicio: str, 
                                 i_date: str, f_date: str,
                                 i_hour: str, f_hour: str) -> None:
         """Llena los cuatro campos del intervalo fecha/hora"""
@@ -174,19 +182,21 @@ class Desincorporaciones_Scraper(Extractor):
             ("input[ng-model='faixaHoraFinal']", f_hour),
         ):
             campo = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, css)))
-            driver.save_screenshot(str(self.download_dir / f"step_{css}_located.png"))
+            driver.save_screenshot(str(self.download_dir / f"{servicio}_{css}_located.png"))
             campo.clear()
             campo.send_keys(valor)
-            driver.save_screenshot(str(self.download_dir / f"step_{css}_filled.png"))
+            driver.save_screenshot(str(self.download_dir / f"{servicio}_{css}_filled.png")) 
 
-    def _consultar(self, driver: webdriver.Chrome) -> None:
+    def _consultar(self, driver: webdriver.Chrome, servicio: str) -> None:
         """Dispara la consulta con los filtros ya puestos"""
         wait = WebDriverWait(driver, 20)
         wait.until(EC.element_to_be_clickable(
                    (By.CSS_SELECTOR, "button[ng-click='consultar']"))).click()
         time.sleep(1)
+        driver.save_screenshot(str(self.download_dir / f"{servicio}_consulted.png"))
 
-    def _download_csv(self, driver: webdriver.Chrome, prefijo: str, name_date: str,
+    def _download_csv(self, driver: webdriver.Chrome, servicio: str, prefijo: str,
+                      name_date: str,
                       file_timeout: int = 120) -> Path:
         """Dispara la descarga, espera el .csv real y lo renombra.
         
@@ -233,6 +243,7 @@ class Desincorporaciones_Scraper(Extractor):
             target.unlink()
         new_file.rename(target)
         print(f"[{prefijo}][OK] {target.name}")
+        driver.save_screenshot(str(self.download_dir / f"{servicio}_downloaded.png"))
         return target
 
     # -- Ciclo completo por servicio ----------------------
@@ -247,9 +258,9 @@ class Desincorporaciones_Scraper(Extractor):
 
         print(f"\n === Ciclo: {servicio} -> {prefijo}_{name_date}.csv ===")
         self._select_servicio(driver, servicio)
-        self._set_date_hour_interval(driver, i_date, f_date, i_hour, f_hour)
-        self._consultar(driver)
-        return self._download_csv(driver, prefijo, name_date)
+        self._set_date_hour_interval(driver, servicio, i_date, f_date, i_hour, f_hour)
+        self._consultar(driver, servicio)
+        return self._download_csv(driver, servicio, prefijo, name_date)
         
 
 
@@ -260,41 +271,70 @@ class Desincorporaciones_Scraper(Extractor):
 
         sidebar_icon = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "img[src='img/fa-list.png']")))
         driver.execute_script("arguments[0].click();", sidebar_icon)
-        driver.save_screenshot(str(self.download_dir / "logout1_sidebar_clicked.png"))
+        #driver.save_screenshot(str(self.download_dir / "logout1_sidebar_clicked.png"))
         
         logout_icon = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "a[ng-click='logout()']")))
         driver.execute_script("arguments[0].click();", logout_icon)
-        driver.save_screenshot(str(self.download_dir / "logout2_logout_clicked.png"))
+        #driver.save_screenshot(str(self.download_dir / "logout2_logout_clicked.png"))
 
         logout_confirm = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[class='confirm confirm-btn']")))
         logout_confirm.click()
-        driver.save_screenshot(str(self.download_dir / "logout3_logout_confirmed.png"))
+        #driver.save_screenshot(str(self.download_dir / "logout3_logout_confirmed.png"))
 
 #---------------------------------Scrape_Method------------------------------------------
     def scrape(self) -> Path:
-        """Scrape data from the Sonda website for the previous day."""
+        """Descarga un CSV por cara servicio de SERVICIOS, en una sola sesión.
+        Retorna {prefijo: Path} SOLO con los ciclos que se completaron.
+        
+        POLÍTICA DE FALLO - BEST-EFFORT POR CICLO: Un falllo en el ciclo N
+        no interrumpe el ciclo N+1."""
         target_date = yesterday_cdmx()
-        date_str  = target_date.strftime("%d%m%Y")
-        date_str_ = target_date.strftime("%d%m%y")
+        date_str  = target_date.strftime("%d%m%Y") #string para el form de Sonda
+        date_str_ = target_date.strftime("%d%m%y") #sufijo del nombre del archivo
+
+        descargados: dict[str, Path] = {}
+        fallos: list[tuple[str, Exception]] = {}
 
         driver = self._start_driver()
         try:
             self._login(driver)
             self._navigate_to_report(driver)
-            desinc_csv = self._run_report_cycle(driver,
-                                                servicio=SERVICIO_DESINCORPORACION,
-                                                prefijo="Desinc",
-                                                i_date=date_str, f_date=date_str,
-                                                i_hour='000000', f_hour='235959',
-                                                name_date=date_str_,
-                                                )
+
+            for idx, (serv, pref) in enumerate(SERVICIOS, start=1):
+                print(f"\n=== [{idx}/{len(SERVICIOS)}] Servicio: {serv} ===")
+                try:
+                    descargados[pref] = self._run_report_cycle(
+                        driver,
+                        servicio=serv,
+                        prefijo=pref,
+                        i_date=date_str, f_date=date_str,
+                        i_hour='000000', f_hour='235959',
+                        name_date=date_str_,
+                    )
+                except Exception as exc:
+                    print(f"[{pref}][ERROR] Ciclo falló: "
+                          f"{type(exc).__name__}: {exc}") 
+                    fallos.append((pref, exc))
 
             time.sleep(1)
-            self._logout(driver)
+
+            # Logout best-effort: si un cilo dejó la sesión rota, el logout falla también
+            # falla también. No invalida los CSV ya en disco, y driver.quit()
+            # cierra el navegador igual. Levantar (error) aquí perdería el dict.
+            try:
+                self._logout(driver)
+            except Exception as exc:
+                print(f"[LOGOUT][WARN] {type(exc).__name__}: {exc}")
         finally:
             driver.quit()
-        
-        return desinc_csv    
+
+        print(f"\n[RESUMEN EXTRACT] {len(descargados)}/{len(SERVICIOS)} "
+              f"reportes descargados")
+
+        for prefijo, exc in fallos:
+            print(f"    ❌  {prefijo}  —  {type(exc).__name__}: {exc}")
+
+        return descargados
 
 # Bloque que permite test execution 
 # En prompt invocas python -m extract.scrapers.Desincorporaciones
