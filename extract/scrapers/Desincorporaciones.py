@@ -28,12 +28,19 @@ SERVICIOS = (
     (SERVICIO_APOYO, "Apoyo"),
 )
 
+SERVICIO_CSV_TRIGGER = {
+    SERVICIO_DESINCORPORACION: "gerarCsvDesincorporacion()",
+    SERVICIO_APOYO: "gerarCsvApoyo()", 
+}
+
+SERVICIO_HEADER_TOKEN = {
+    SERVICIO_DESINCORPORACION: "DESINCORPORACIÓN",
+    SERVICIO_APOYO: "APOYO",
+}
+
 SERVICIO_CONTAINER_CSS = "#inputCategoria"
-
 SERVICIO_TRIGGER_CSS = "#inputCategoria a.select2-choice"
-
 SERVICIO_MATCH_CSS = "#inputCategoria a.ui-select-match span.select2-chosen[ng-transclude]"
-
 SERVICIO_OPEN_CSS = "#inputCategoria.open"
 
 class Desincorporaciones_Scraper(Extractor):
@@ -195,6 +202,36 @@ class Desincorporaciones_Scraper(Extractor):
         time.sleep(1)
         driver.save_screenshot(str(self.download_dir / f"{servicio}_consulted.png"))
 
+    def _validar_header(self, csv_path: Path, servicio: str,
+                            prefijo: str) -> None:
+            """Verifica que el CSV descargado corresponda al servicio consultado.
+    
+            Primera guarda de CONTENIDO del pipeline. Las demás son de forma
+            (extensión, tamaño estable, nombre) y un CSV del exportador equivocado
+            las pasa todas.
+    
+            encoding='utf-8-sig': el exportador declara add-bom="true"; sin esto
+            el primer campo llega como '\\ufeffLÍNEA'.
+            """
+            token = SERVICIO_HEADER_TOKEN.get(servicio)
+            if token is None:
+                raise RuntimeError(
+                    f"Sin token de header configurado para servicio '{servicio}'."
+                )
+    
+            with open(csv_path, "r", encoding="utf-8-sig") as f:
+                header = f.readline().strip()
+    
+            if token not in header.upper():
+                raise RuntimeError(
+                    f"[{prefijo}] El CSV descargado no corresponde al servicio "
+                    f"'{servicio}': se esperaba '{token}' en el header. "
+                    f"Header recibido: {header[:160]!r}. "
+                    f"Archivo conservado en {csv_path} para inspección."
+                )
+            print(f"[{prefijo}][HEADER OK] token '{token}' presente")
+    
+
     def _download_csv(self, driver: webdriver.Chrome, servicio: str, prefijo: str,
                       name_date: str,
                       file_timeout: int = 120) -> Path:
@@ -206,11 +243,22 @@ class Desincorporaciones_Scraper(Extractor):
         existentes."""
         wait = WebDriverWait(driver, 20)
 
+        try:
+            csv_expr = SERVICIO_CSV_TRIGGER[servicio]
+        except KeyError:
+            raise RuntimeError(
+                f"Sin exportador CSV configurado para servicio '{servicio}'. "
+                f"Agrega su expresión ng-csv a SERVICIO_CSV_TRIGGER."
+            )   from None
         existing = set(self.download_dir.glob("*"))  # snapshot pre-descarga
 
-        action_download = wait.until(EC.presence_of_element_located(
-            (By.CSS_SELECTOR, "span[ng-csv = 'gerarCsvDesincorporacion()']")))
-        driver.execute_script("arguments[0].click();", action_download)
+        # visibility_of, NO presence_of: ambos exportadores conviven en el DOM
+        # y el que no corresponde queda oculto. presence lo encuentra igual, y
+        # un click por JS funciona sobre elementos ocultos — esa combinación
+        # es la que hizo el bug silencioso en vez de ruidoso.
+        action_download = wait.until(EC.visibility_of_element_located(
+            (By.CSS_SELECTOR, f"span[ng-csv='{csv_expr}']")))
+        driver.execute_script("arguments[0].click();", action_download)     
 
         # -- Esperar un .csv real (sin parciales) ---
         elapsed = 0
@@ -237,6 +285,8 @@ class Desincorporaciones_Scraper(Extractor):
                 break
             previous_size = current_size
             time.sleep(0.5)
+
+        self._validar_header(new_file, servicio, prefijo)
 
         target = self.download_dir / f"{prefijo}_{name_date}.csv"
         if target.exists():
@@ -311,6 +361,7 @@ class Desincorporaciones_Scraper(Extractor):
                         i_hour='000000', f_hour='235959',
                         name_date=date_str_,
                     )
+                    time.sleep(10)
                 except Exception as exc:
                     print(f"[{pref}][ERROR] Ciclo falló: "
                           f"{type(exc).__name__}: {exc}") 
