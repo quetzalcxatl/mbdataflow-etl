@@ -40,10 +40,7 @@ GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 GOOGLE_APPLICATION_CREDENTIALS = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 
 # --- BigQuery ---------------------------------------------------
-DATASET_ID        = os.environ.get("BQ_DATASET_ID")
-SONDA_PV_TABLE_ID = os.environ.get("BQ_SONDA_PV_TABLE_ID")  
-
-BQ_PROJECT             = os.environ.get("BQ_PROJECT")
+BQ_PROJECT            = os.environ.get("BQ_PROJECT")
 BQ_DATASET_SONDA       = os.environ.get("BQ_DATASET_SONDA", "Sonda")
 BQ_DATASET_INTERTRAMOS = os.environ.get("BQ_DATASET_INTERTRAMOS", "TIEMPO_INTERTRAMOS")
 BQ_DATASET_PRUEBAS     = os.environ.get("BQ_DATASET_PRUEBAS", "pruebas")
@@ -54,6 +51,8 @@ BQ_TABLE_INT_CUMPL          = f"{BQ_PROJECT}.{BQ_DATASET_INTERTRAMOS}.INTERVALOS
 BQ_TABLE_VIAJES_TEST        = f"{BQ_PROJECT}.{BQ_DATASET_PRUEBAS}.VIAJES_smoketest"
 BQ_TABLE_INTERVALOS_TEST    = f"{BQ_PROJECT}.{BQ_DATASET_PRUEBAS}.INTERVALOS_smoketest"
 BQ_TABLE_INT_CUMPL_TEST     = f"{BQ_PROJECT}.{BQ_DATASET_PRUEBAS}.INTERVALOS_Y_CUMPLIMIENTOS_smoketest"
+BQ_TABLE_PV                 = f"{BQ_PROJECT}.{BQ_DATASET_SONDA}.PV"
+BQ_TABLE_PV_TEST            = f"{BQ_PROJECT}.{BQ_DATASET_PRUEBAS}.PV_smoketest"
 
 
 # --- Sonda Platform Credentials ---------------------------------
@@ -93,6 +92,11 @@ PROCESSED_FLOTAV_PATH      = PROJECT_ROOT / "data" / "processed" / "processed_Fl
 RAW_VIAJE_PATH             = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Viaje")
 PROCESSED_VIAJE_PATH       = _runtime_path(PROJECT_ROOT / "data" / "processed" / "processed_Viaje")
 RAW_PASOS_PATH             = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_Pasos")
+RAW_PV_PATH                = _runtime_path(PROJECT_ROOT / "data" / "raw" / "downloads_PV")
+PROCESSED_PV_PATH          = _runtime_path(PROJECT_ROOT / "data" / "processed" / "processed_PV")
+
+# --- Sonda PV: franjas horarias del reporte (Matutino / Vespertino) ---
+SONDA_PV_CONFIG_PATH = PROJECT_ROOT / "config" / "sonda_pv_config.json"
                                            
 # --- SQL remote transform layers ----------------------------------------
 # In this section we add the location of SQL queries that runs over remote warehouse
