@@ -43,13 +43,14 @@ MBDataFlow_ETL/
 │   │   ├── Desincorporaciones.py
 │   │   ├── FlotaVehicular.py
 │   │   ├── Pasos.py
-│   │   ├── recover_sonda_pv.py
 │   │   ├── Reporte_Viaje.py
-│   │   └── Reportes_Operador.py
+│   │   ├── Reportes_Operador.py
+│   │   └── Sonda_PV.py
 │   ├── __init__.py
 │   └── base.py
 ├── load/
 │   ├── loaders/
+│   │   ├── BigQuery_day_loader.py
 │   │   ├── BigQuery_loader.py
 │   │   ├── CAN_drive_loader.py
 │   │   ├── Circuitos_drive_loader.py
@@ -60,6 +61,7 @@ MBDataFlow_ETL/
 │   │   ├── Reportes_Operador_drive_loader.py
 │   │   └── Viaje_drive_loader.py
 │   ├── schemas/
+│   │   ├── sonda_pv.py
 │   │   └── viaje.py
 │   ├── __init__.py
 │   └── base.py
@@ -70,6 +72,7 @@ MBDataFlow_ETL/
 │   ├── pipeline_Circuitos.py
 │   ├── pipeline_Desinc.py
 │   ├── pipeline_Pasos.py
+│   ├── pipeline_PV.py
 │   ├── pipeline_rangofechas_canbus.py
 │   └── pipeline_Viaje.py
 ├── scripts/
@@ -80,13 +83,17 @@ MBDataFlow_ETL/
 │   ├── deploy_job_desinc.ps1
 │   ├── deploy_job_pasos.ps1
 │   ├── deploy_job_viaje.ps1
+│   ├── deploy_job_pv.ps1
 │   ├── deploy_pasos.ps1
+│   ├── deploy_pv.ps1
 │   ├── deploy_viaje.ps1
 │   ├── setup_scheduler_circuitos.ps1
 │   ├── setup_scheduler_desinc.ps1
 │   ├── setup_scheduler_pasos.ps1
+│   ├── setup_scheduler_pv.ps1
 │   ├── setup_scheduler_viaje.ps1
 │   ├── smoke_test_bigquery_loader.py
+│   ├── smoke_test_pv_loader.py
 │   └── smoketest_bq_sql_runner.py
 ├── tests/
 │   ├── test_extract/
@@ -99,7 +106,8 @@ MBDataFlow_ETL/
 │   │   ├── __init__.py
 │   │   ├── CanBus.py
 │   │   ├── FlotaVehicular.py
-│   │   └── Reporte_Viaje.py
+│   │   ├── Reporte_Viaje.py
+│   │   └── Sonda_PV.py
 │   ├── __init__.py
 │   ├── base.py
 │   └── bq_sql_runner.py
@@ -130,6 +138,7 @@ MBDataFlow_ETL/
 | `pipeline_rangofechas_canbus` | EL | Pausado · calidad de datos upstream | — |
 | `pipeline_Pasos` | EL | Producción | Cloud Scheduler semanal · 6:00 AM CDMX |
 | `pipeline_Viaje` | ETL-T | Local | - | 
+| `pipeline_PV` | ETL | En migración · reemplaza a `mbdataflow_2` | Cloud Scheduler diario · 4:00 PM CDMX |
 
 ## Deployment
 
