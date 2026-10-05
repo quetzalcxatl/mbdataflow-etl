@@ -251,6 +251,13 @@ que el CSV traiga SOLO esa fecha y TODAS las particiones esperadas (ambos
 turnos). Sin esa guarda, un CSV con un solo turno borraría el día completo y
 repondría la mitad. `BigQueryLoader` no se modificó.
 
+**Destino de `pipeline_PV` (`--target`).** El default es `test`
+(`pruebas.PV_smoketest`) para que una corrida local nunca toque producción;
+el Cloud Run Job pasa `--target prod` explícito en sus args
+(`scripts/deploy_job_pv.ps1`). La paridad contra el job legacy se audita con
+`scripts/audit_pv_parity.py` (multiconjunto exacto en BigQuery + diagnóstico
+por columna en pandas), sobre la tabla de test.
+
 **Antes de agregar o mover cualquier Job que toque Sonda**, revisar
 `gcloud scheduler jobs list --location=us-central1` y verificar que la ventana
 [inicio, inicio + duración worst-case] no solape con ninguna otra.

@@ -15,11 +15,15 @@ $IMAGE       = "$REGION-docker.pkg.dev/$PROJECT_ID/mbdataflow/etl-pipelines:late
 #     retry after a partial run replaces the day instead of duplicating it
 #   * BQ_PROJECT must be set (no default in settings.py); BQ_DATASET_SONDA uses the
 #     default "Sonda" from settings.py — matching production
+#   * --target,prod is REQUIRED: pipeline_PV defaults to the test table
+#     (pruebas.PV_smoketest) so local runs never touch production. Without this
+#     flag the Job would load to the test table and Sonda.PV would silently stop
+#     receiving data.
 
 gcloud run jobs create pipeline-pv `
   --image=$IMAGE `
   --command=python `
-  --args="-m,pipelines.pipeline_PV" `
+  --args="-m,pipelines.pipeline_PV,--target,prod" `
   --service-account=$SA_EMAIL `
   --region=$REGION `
   --max-retries=1 `
