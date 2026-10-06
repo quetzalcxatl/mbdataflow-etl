@@ -3,7 +3,9 @@
 #
 # Workflow:
 #   1. Builds image via Cloud Build, tagged with current commit SHA
-#   2. Updates Cloud Run Job to point at the new image (:latest)
+#   2. Updates Cloud Run Job to point at the new image (:latest),
+#      or CREATES it via deploy_job_pv.ps1 if it doesn't exist yet
+#      (so the first deploy is also just: .\scripts\deploy_pv.ps1)
 #
 # Usage:
 #   .\scripts\deploy_pv.ps1            # Deploy current commit
@@ -57,16 +59,33 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- Update Job --------------------------------------------
-Write-Host "==> Updating Cloud Run Job to new image" -ForegroundColor Cyan
+# --- Create or update Job ----------------------------------
+# First deploy: the Job doesn't exist yet. It must be created AFTER the build,
+# otherwise it would point at an :latest image without pipeline_PV. So this
+# script builds first and then delegates creation to deploy_job_pv.ps1 (which
+# carries --target,prod and the rest of the Job config). Later deploys update.
 $IMAGE = "$REGION-docker.pkg.dev/$PROJECT_ID/mbdataflow/etl-pipelines:latest"
 
-gcloud run jobs update pipeline-pv `
-  --image=$IMAGE `
-  --region=$REGION
+# 'describe' writes to stderr when the Job is missing; under
+# ErrorActionPreference=Stop Windows PowerShell would turn that into a
+# terminating error, so relax it just for the existence check.
+$ErrorActionPreference = "Continue"
+gcloud run jobs describe pipeline-pv --region=$REGION --format="value(name)" 2>$null | Out-Null
+$jobExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = "Stop"
+
+if ($jobExists) {
+    Write-Host "==> Updating Cloud Run Job to new image" -ForegroundColor Cyan
+    gcloud run jobs update pipeline-pv `
+      --image=$IMAGE `
+      --region=$REGION
+} else {
+    Write-Host "==> Job 'pipeline-pv' not found: creating it (deploy_job_pv.ps1)" -ForegroundColor Cyan
+    & "$PSScriptRoot\deploy_job_pv.ps1"
+}
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Job update failed." -ForegroundColor Red
+    Write-Host "ERROR: Job create/update failed." -ForegroundColor Red
     exit 1
 }
 
