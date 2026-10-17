@@ -49,6 +49,12 @@ LINEA_SLUG = {
 CENTRAL_IFRAME_CSS = "iframe[ng-src='#/preferencias/central']"
 XPATH_MENU_CENTRAL = "//*[@id='navbar-fixed-left']/ul/li[9]/ul/li/ul/li[1]/a[1]"
 
+# Zona horaria que debe ver el NAVEGADOR. El SPA arma el Date JS con los
+# componentes tecleados (dd/mm/yyyy hh:mm) en la zona del browser y lo
+# serializa al backend. En Cloud Run Chrome corre en UTC -> la ventana se
+# corre 6 h hacia atrás. Se fuerza vía CDP y se verifica antes de encolar.
+BROWSER_TZ = "America/Mexico_City"
+
 class Pasos_Scraper(Extractor):
     """Download and load data for the Reporte_Pasos source."""
 
@@ -110,7 +116,30 @@ class Pasos_Scraper(Extractor):
             driver = webdriver.Chrome(options=options)
             driver.set_window_size(1366, 768)
 
+        # Forzar TZ del navegador: no depende del TZ del host ni de tzdata.
+        driver.execute_cdp_cmd("Emulation.setTimezoneOverride",
+                               {"timezoneId": BROWSER_TZ})
+        print(f"[DRIVER] os_TZ={os.environ.get('TZ')!r} "
+              f"browser_tz_override={BROWSER_TZ}")
+
         return driver
+
+    @staticmethod
+    def _assert_browser_tz(driver: webdriver.Chrome, where: str) -> None:
+        """Verifica la TZ efectiva del documento actual (incluye iframes).
+
+        Falla en voz alta (§5.6) en vez de subir CSV desfasados a Drive.
+        """
+        tz, offset = driver.execute_script(
+            "return [Intl.DateTimeFormat().resolvedOptions().timeZone,"
+            " new Date().getTimezoneOffset()];"
+        )
+        print(f"[TZ][{where}] browser_tz={tz} offset_min={offset}")
+        if tz != BROWSER_TZ:
+            raise RuntimeError(
+                f"[{where}] TZ del navegador es {tz!r} (offset {offset} min), "
+                f"se esperaba {BROWSER_TZ!r}. La ventana operativa saldría desfasada."
+            )
 
     # Sub-método privado
     # Proceso de logeado en la página de Sinoptico
@@ -271,6 +300,8 @@ class Pasos_Scraper(Extractor):
         """
         wait = WebDriverWait(driver, 15)
         wait.until(EC.presence_of_element_located((By.ID, "fecha-inicio")))
+        # Estamos dentro del iframe de Pasos: es el documento que serializa las fechas.
+        self._assert_browser_tz(driver, "iframe_pasos")
 
         self._set_date(driver, "fecha-inicio", dt_i.date())
         self._set_hour_minute(driver, "fecha-inicio", dt_i.hour, dt_i.minute)

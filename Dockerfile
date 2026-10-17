@@ -11,6 +11,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     # Force stdout/stderr to be unbuffered (critical for Cloud Logging)
     PYTHONUNBUFFERED=1 \
+    # Host/browser TZ = CDMX (defensa adicional al override CDP de los scrapers)
+    TZ=America/Mexico_City \
     # Tell Selenium where Chrome lives
     CHROME_BIN=/opt/chrome-linux64/chrome
 
@@ -24,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     unzip \
     ca-certificates \
+    tzdata \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
