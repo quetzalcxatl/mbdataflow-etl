@@ -16,8 +16,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from ..base import Extractor
 from ..helpers.download_helper import get_latest_row_status
 
-from config.settings  import (SONDA_QUERY_USER,
-                              SONDA_QUERY_PASSWORD,
+from config.settings  import (SONDA_PERSONAL_USER,
+                              SONDA_PERSONAL_PASSWORD,
                               RAW_PASOS_PATH,
                               )
 
@@ -46,7 +46,17 @@ LINEA_SLUG = {
     'Línea H72' : 'H72',
 }
 
-CENTRAL_IFRAME_CSS = "iframe[ng-src='#/preferencias/central']"
+def nombre_csv(linea_slug: str, start: datetime, end: datetime) -> str:
+    """Contrato de nomenclatura: pasos_<slug>_sem<N ISO>_<ddmmyy inicio>_<ddmmyy fin>.csv
+
+    Única fuente del nombre: la usan el rename del scraper y el pre-chequeo de
+    Drive del modo reposición en pipeline_Pasos.
+    """
+    return (f"pasos_{linea_slug}_sem{start.isocalendar()[1]}_"
+            f"{start.strftime('%d%m%y')}_{end.strftime('%d%m%y')}.csv")
+
+
+CENTRAL_IFRAME_CSS ="iframe[ng-src='#/preferencias/central']"
 XPATH_MENU_CENTRAL = "//*[@id='navbar-fixed-left']/ul/li[9]/ul/li/ul/li[1]/a[1]"
 
 # Zona horaria que debe ver el NAVEGADOR. El SPA arma el Date JS con los
@@ -157,8 +167,8 @@ class Pasos_Scraper(Extractor):
             #driver.save_screenshot(str(self.download_dir / "step2_username_found.png"))
             password_input = wait.until(EC.presence_of_element_located((By.NAME, "password")))
             #driver.save_screenshot(str(self.download_dir / "step3_password_found.png"))
-            username_input.send_keys(SONDA_QUERY_USER) # Credentials
-            password_input.send_keys(SONDA_QUERY_PASSWORD)
+            username_input.send_keys(SONDA_PERSONAL_USER) # Credentials
+            password_input.send_keys(SONDA_PERSONAL_PASSWORD)
             #driver.save_screenshot(str(self.download_dir / "step4_credentials_entered.png"))
             login_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
             #driver.save_screenshot(str(self.download_dir / "step5_before_click.png"))
@@ -538,7 +548,7 @@ class Pasos_Scraper(Extractor):
             (By.CSS_SELECTOR, CENTRAL_IFRAME_CSS)))
 
     def _download_latest(self, driver: webdriver.Chrome, linea_slug: str,
-                     week_number: int, date_name: str,
+                     target_name: str,
                      status_timeout: int = 600) -> Path:
         """Pollea la Central hasta COMPLETO y descarga la fila más reciente.
 
@@ -627,7 +637,7 @@ class Pasos_Scraper(Extractor):
             time.sleep(0.5)
 
         # --- Rename al contrato de nomenclatura ---
-        target = self.download_dir / f"pasos_{linea_slug}_sem{week_number}_{date_name}.csv"
+        target = self.download_dir / target_name
         if target.exists():
             target.unlink()
         new_file.rename(target)
@@ -653,17 +663,21 @@ class Pasos_Scraper(Extractor):
 
 
     #---------------------------------Scrape_Method------------------------------------------
-    def scrape(self) -> list[Path]:
-        from utils.dates import last_completed_operational_week_cdmx, last_operational_week_number
-        start, end = last_completed_operational_week_cdmx()
-        week_numero = last_operational_week_number()
+    def scrape(self, window: tuple[datetime, datetime] | None = None) -> list[Path]:
+        """window: (start, end) tz-aware CDMX de UNA semana operativa. Si es None
+        se usa la última semana cerrada. El número de semana se deriva del mismo
+        `start` (sin segunda lectura del reloj -> sin carrera con la carpeta).
+        """
+        if window is None:
+            from utils.dates import last_completed_operational_week_cdmx
+            window = last_completed_operational_week_cdmx()
+        start, end = window
 
         # El SPA de Pasos tiene granularidad de MINUTO (no segundos como Viaje).
         # Contrato 03:20 → 03:19 semiabierto en granularidad minuto.
         dt_i = start.replace(second=0, microsecond=0)
         dt_f = (end - timedelta(minutes=1)).replace(second=0, microsecond=0)
 
-        name_date = f"{start.strftime('%d%m%y')}_{end.strftime('%d%m%y')}"
         downloaded: list[Path] = []
 
         driver = self._start_driver()
@@ -685,7 +699,8 @@ class Pasos_Scraper(Extractor):
                 print(f"[{slug}][ENCOLADO] Solicitud enviada")
 
                 self._navigate_to_downloads(driver)
-                target = self._download_latest(driver, slug, week_numero, name_date)
+                target = self._download_latest(driver, slug,
+                                               nombre_csv(slug, start, end))
                 downloaded.append(target)
 
                 self._close_downloads_window(driver)
