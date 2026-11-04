@@ -10,10 +10,12 @@ from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from ..base import Extractor
+from utils.dates import today_cdmx
 
 from config.settings import (SONDA_QUERY_USER,
                              SONDA_QUERY_PASSWORD,
@@ -30,7 +32,28 @@ TURNO_CONFIG_KEY = {
 
 # Campo del formulario que identifica al iframe del reporte PV
 HORA_INPUT_CSS = "input[ng-model='filter.hora']"
-XPATH_MENU_PV = '//*[@id="navbar-fixed-left"]/ul/li[2]/ul/li/ul/li[13]/a[1]'
+# Datepicker del mismo formulario (dd/MM/yyyy). Vacío = día en curso en Sonda.
+FECHA_INPUT_CSS = "input[ng-model='filter.fecha']"
+
+# Entrada del menú lateral del reporte PV (Flota Vehicular). Se busca por ruta o
+# por texto, NO por posición: Sonda reordenó el submenú en oct-2026 y el XPath
+# posicional li[13] terminó abriendo #/arrastotripulacao/consultar.
+MENU_PV_HREF_KEY = "frotaoperando"
+MENU_PV_TEXT = "flota vehicular"
+MENU_PV_JS = r"""
+const hrefKey = arguments[0], text = arguments[1];
+const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+                           .replace(/\s+/g, ' ').trim().toLowerCase();
+const route = a => ['href', 'ng-href', 'ui-sref', 'ng-click']
+    .map(k => a.getAttribute(k) || '').join(' ').toLowerCase();
+const links = Array.from(document.querySelectorAll('#navbar-fixed-left a'));
+const match = links.find(a => route(a).includes(hrefKey))
+           || links.find(a => norm(a.textContent) === text);
+return {
+    match: match || null,
+    menu: links.map(a => norm(a.textContent) + ' -> ' + route(a).trim()),
+};
+"""
 
 # Extensiones de Chrome mientras la descarga no ha terminado
 PARTIAL_SUFFIXES = (".crdownload", ".tmp")
@@ -43,9 +66,10 @@ class SondaPV_Scraper(Extractor):
     Descargas: el botón 'relatorioJornada()' descarga el CSV directamente.
     Por eso no compite por la cola de solicitudes de la cuenta (§5.10).
 
-    El reporte siempre es del día en curso en Sonda; `fecha` solo etiqueta los
-    archivos. El pipeline la pasa desde utils.dates.today_cdmx() — una sola
-    lectura del reloj compartida por extract, transform y load.
+    Corrida diaria: `fecha` = utils.dates.today_cdmx() — una sola lectura del
+    reloj compartida por extract, transform y load — y el datepicker se deja
+    vacío (Sonda usa el día en curso). Backfill (`--date` en pipeline_PV): si
+    `fecha` no es hoy, se escribe en el datepicker antes de descargar.
     """
 
     name = "Sonda_PV"
@@ -153,10 +177,31 @@ class SondaPV_Scraper(Extractor):
             (By.CSS_SELECTOR, "img[src='img/fa-list.png']")))
         driver.execute_script("arguments[0].click();", sidebar_icon)
 
-        menu_item = wait.until(EC.presence_of_element_located((By.XPATH, XPATH_MENU_PV)))
+        menu_item = self._find_menu_item(driver)
         driver.execute_script("arguments[0].click();", menu_item)
 
         self._enter_report_iframe(driver)
+
+    def _find_menu_item(self, driver: webdriver.Chrome, timeout: int = 30):
+        """Devuelve el <a> del menú lateral que abre el reporte PV.
+
+        Si no aparece, el error lista todas las entradas del menú (texto -> ruta)
+        para poder ajustar MENU_PV_HREF_KEY / MENU_PV_TEXT desde el log.
+        """
+        deadline = time.monotonic() + timeout
+        menu: list[str] = []
+        while time.monotonic() < deadline:
+            result = driver.execute_script(MENU_PV_JS, MENU_PV_HREF_KEY, MENU_PV_TEXT)
+            if result["match"] is not None:
+                return result["match"]
+            menu = result["menu"]
+            time.sleep(1)
+
+        raise RuntimeError(
+            f"No se encontró la entrada del menú PV (ruta '{MENU_PV_HREF_KEY}' "
+            f"o texto '{MENU_PV_TEXT}') tras {timeout}s. "
+            f"Menú: {menu or '(vacío)'}. Estado: {self._document_state(driver)}"
+        )
 
     def _enter_report_iframe(self, driver: webdriver.Chrome, timeout: int = 60) -> None:
         """Entra al iframe que contiene el formulario del reporte PV.
@@ -188,18 +233,54 @@ class SondaPV_Scraper(Extractor):
             " i + ': id=' + f.id + ' src=' + f.getAttribute('src')"
             " + ' ng-src=' + f.getAttribute('ng-src'));"
         )
+        wrong_report = not any(MENU_PV_HREF_KEY in info.lower() for info in iframes_info or [])
         raise TimeoutError(
             f"No apareció {HORA_INPUT_CSS} en ningún iframe tras {timeout}s. "
-            f"Iframes: {iframes_info or '(ninguno)'}. "
+            f"Iframes: {iframes_info or '(ninguno)'}"
+            f"{' (¿el menú abrió otro reporte?)' if wrong_report else ''}. "
             f"Estado: {self._document_state(driver)}"
         )
 
+    def _set_fecha(self, driver: webdriver.Chrome) -> None:
+        """Escribe self.fecha en el datepicker del reporte (solo backfill).
+
+        Verifica que Angular haya aceptado la fecha: si el modelo queda vacío o
+        inválido, Sonda descargaría el día en curso y lo cargaríamos etiquetado
+        con otra fecha. Mejor fallar.
+        """
+        typed = self.fecha.strftime("%d/%m/%Y")
+        fecha_input = WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, FECHA_INPUT_CSS)))
+        fecha_input.clear()
+        fecha_input.send_keys(typed)
+        fecha_input.send_keys(Keys.ESCAPE)  # cierra el popup del datepicker
+        time.sleep(1)
+
+        model = driver.execute_script(
+            "try { const c = angular.element(arguments[0]).controller('ngModel');"
+            " return c ? {valid: c.$valid, value: String(c.$modelValue)} : null; }"
+            " catch (e) { return null; }",
+            fecha_input,
+        )
+        value = fecha_input.get_attribute("value")
+        if value != typed or (model is not None and
+                              (not model["valid"] or model["value"] in ("undefined", "null", ""))):
+            raise RuntimeError(
+                f"Backfill PV: el datepicker no aceptó la fecha {typed}. "
+                f"value={value!r} ngModel={model}. Estado: {self._document_state(driver)}"
+            )
+        print(f"[FECHA] Datepicker en {typed} (ngModel={model})")
+
     def _new_complete_files(self, existing: set[Path]) -> list[Path]:
-        return [
-            p
-            for p in set(self.download_dir.glob("*")) - existing
-            if p.is_file() and not p.name.endswith(PARTIAL_SUFFIXES)
-        ]
+        """CSV nuevos y completos.
+
+        Solo .csv: Chrome puede dejar transitorios (p. ej. downloads.htm) que
+        desaparecen antes de leerlos. Mientras haya un parcial, nada está completo.
+        """
+        new = [p for p in set(self.download_dir.glob("*")) - existing if p.is_file()]
+        if any(p.name.endswith(PARTIAL_SUFFIXES) for p in new):
+            return []
+        return [p for p in new if p.suffix.lower() == ".csv"]
 
     def _download_for_turno(self, driver: webdriver.Chrome, turno: str,
                             file_timeout: int = 60) -> Path:
@@ -264,6 +345,8 @@ class SondaPV_Scraper(Extractor):
         try:
             self._login(driver)
             self._navigate_to_report(driver)
+            if self.fecha != today_cdmx().date():
+                self._set_fecha(driver)
             for turno in TURNOS:
                 downloaded[turno] = self._download_for_turno(driver, turno)
 
@@ -283,6 +366,5 @@ class SondaPV_Scraper(Extractor):
 # Bloque que permite test execution
 # En prompt invocas python -m extract.scrapers.Sonda_PV
 if __name__ == "__main__":
-    from utils.dates import today_cdmx
     scraper = SondaPV_Scraper(today_cdmx().date())
     print(scraper.run())

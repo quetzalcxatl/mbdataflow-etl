@@ -58,3 +58,4 @@ python_check.py
 *.png
 *.csv
 notas.txt
+scripts/logs_pipelines/

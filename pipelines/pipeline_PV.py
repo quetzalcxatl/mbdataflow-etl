@@ -9,6 +9,13 @@ Ejecución:
     python -m pipelines.pipeline_PV                   # carga a pruebas.PV_smoketest
     python -m pipelines.pipeline_PV --target prod     # carga a Sonda.PV
     python -m pipelines.pipeline_PV --dry-run         # extract + transform, sin BQ
+    python -m pipelines.pipeline_PV --date 2026-10-26 --target prod   # backfill de UN día
+
+Backfill (--date)
+-----------------
+Procesa un solo día pasado: el scraper escribe la fecha en el datepicker del
+reporte y el loader hace delete-then-append de ese día. Sin --date se usa
+today_cdmx() (corrida diaria, sin tocar el datepicker).
 
 Destino (--target)
 ------------------
@@ -44,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import date
 
 from config.settings import (
     BQ_PROJECT,
@@ -96,21 +104,28 @@ def _validate_env(dry_run: bool, target: str) -> None:
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
-def main(dry_run: bool = False, target: str = DEFAULT_TARGET) -> int:
+def main(dry_run: bool = False, target: str = DEFAULT_TARGET,
+         fecha: date | None = None) -> int:
     if target not in _TARGETS:
         raise ValueError(f"pipeline_PV: target inválido {target!r}; opciones: {sorted(_TARGETS)}")
     table_id = _TARGETS[target]
 
+    # UNA sola lectura del reloj para las tres etapas (o la fecha de --date)
+    today = today_cdmx().date()
+    if fecha is not None and fecha > today:
+        raise ValueError(f"pipeline_PV: --date {fecha} es futura (hoy CDMX: {today}).")
+    backfill = fecha is not None and fecha != today
+    fecha = fecha or today
+
     info("=" * 60)
-    info(f"  pipeline_PV — arranque{' (DRY RUN)' if dry_run else ''}")
+    info(f"  pipeline_PV — arranque{' (DRY RUN)' if dry_run else ''}"
+         f"{' (BACKFILL)' if backfill else ''}")
     info(f"  Destino BQ: [{target.upper()}] {table_id}")
     info("=" * 60)
 
     # 0. Validar configuración ANTES de abrir Chrome
     _validate_env(dry_run, target)
 
-    # UNA sola lectura del reloj para las tres etapas
-    fecha = today_cdmx().date()
     info(f"Fecha de carga: {fecha}")
 
     # 1. Extract: ambos turnos del día
@@ -158,13 +173,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--target", choices=sorted(_TARGETS), default=DEFAULT_TARGET,
                         help="Tabla destino: 'test' = pruebas.PV_smoketest (default), "
                              "'prod' = Sonda.PV (solo el Cloud Run Job)")
+    parser.add_argument("--date", type=date.fromisoformat, default=None,
+                        help="Backfill de un solo día (YYYY-MM-DD). Default: hoy CDMX")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
     try:
-        sys.exit(main(dry_run=args.dry_run, target=args.target))
+        sys.exit(main(dry_run=args.dry_run, target=args.target, fecha=args.date))
     except Exception as e:
         # §5.6: cualquier fallo NO capturado explícitamente propaga con exit != 0.
         # Cloud Run lo reporta FAILED y la alerta de Cloud Monitoring dispara.
