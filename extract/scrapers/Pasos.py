@@ -1,6 +1,7 @@
 """Connector for the Pasos report data source."""
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from ..base import Extractor
-from ..helpers.download_helper import get_latest_row_status
+from ..helpers.download_helper import read_central_rows, find_row_element
 
 from config.settings  import (SONDA_PERSONAL_USER,
                               SONDA_PERSONAL_PASSWORD,
@@ -58,6 +59,9 @@ def nombre_csv(linea_slug: str, start: datetime, end: datetime) -> str:
 
 CENTRAL_IFRAME_CSS ="iframe[ng-src='#/preferencias/central']"
 XPATH_MENU_CENTRAL = "//*[@id='navbar-fixed-left']/ul/li[9]/ul/li/ul/li[1]/a[1]"
+CENTRAL_TABLE_CSS = "table#example.table.responsive.tPainelEventos"
+# Texto de la columna NOMBRE de la Central para las solicitudes de este reporte.
+NOMBRE_REPORTE_CENTRAL = "Pasos Por Parada"
 
 # Zona horaria que debe ver el NAVEGADOR. El SPA arma el Date JS con los
 # componentes tecleados (dd/mm/yyyy hh:mm) en la zona del browser y lo
@@ -76,6 +80,8 @@ class Pasos_Scraper(Extractor):
         self.download_dir = RAW_PASOS_PATH
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self._pasos_iframe_id: str | None = None
+        # Claves (fecha solicitud, nombre) de la Central ya vistas en la corrida.
+        self._seen_rows: set[tuple[str, str]] = set()
 
     @staticmethod
     def _resolve_headless(is_cloud_run: bool) -> bool:
@@ -109,11 +115,21 @@ class Pasos_Scraper(Extractor):
 
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        
+
+        # Sin automatic_downloads Chrome bloquea la 2.ª descarga de la misma
+        # página con el diálogo "descargar varios archivos" (visible en modo
+        # no-headless; el scraper se queda esperando 120 s). Mismo patrón que Circuitos.
+        common_prefs = {
+            "profile.default_content_setting_values.automatic_downloads": 1,
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+        }
+
         if headless:
             options.add_argument("--headless=new")
             options.add_argument("--disable-gpu")
             options.add_argument("--window-size=1366,768")
+            options.add_experimental_option("prefs", common_prefs)
             driver = webdriver.Chrome(options=options)
             # Headless Chrome ignores download prefs — must use CDP
             driver.execute_cdp_cmd(
@@ -121,7 +137,8 @@ class Pasos_Scraper(Extractor):
                 {"behavior": "allow", "downloadPath": str(self.download_dir)},
             )
         else:
-            prefs = {"download.default_directory": str(self.download_dir)}
+            prefs = {**common_prefs,
+                     "download.default_directory": str(self.download_dir)}
             options.add_experimental_option("prefs", prefs)
             driver = webdriver.Chrome(options=options)
             driver.set_window_size(1366, 768)
@@ -154,6 +171,17 @@ class Pasos_Scraper(Extractor):
     # Sub-método privado
     # Proceso de logeado en la página de Sinoptico
     def _login(self, driver: webdriver.Chrome) -> None:
+        # Credenciales vacías -> send_keys(None) lanza TypeError, que el except
+        # de abajo disfrazaba de "Login form not found". Fallar antes y claro.
+        faltantes = [n for n, v in (("SONDA_PERSONAL_USER", SONDA_PERSONAL_USER),
+                                    ("SONDA_PERSONAL_PASSWORD", SONDA_PERSONAL_PASSWORD))
+                     if not v]
+        if faltantes:
+            raise RuntimeError(
+                f"Credenciales de Sonda no definidas: {', '.join(faltantes)}. "
+                "En Cloud Run deben inyectarse como secrets del Job."
+            )
+
         driver.get("https://cdmx.sinopticoplus.com/#/")
         wait = WebDriverWait(driver, 60)  # Increased timeout espera a que cargue
         # Always save a screenshot after loading
@@ -179,7 +207,8 @@ class Pasos_Scraper(Extractor):
             with open(self.download_dir / "login_error_source.html", "w", encoding="utf-8") as f:
                 f.write(driver.page_source)
             raise RuntimeError(
-                "Login form not found. Check if the site structure has changed or if the page is reachable."
+                f"Login falló ({type(e).__name__}: {e}). Check if the site structure "
+                "has changed or if the page is reachable."
             ) from e
 
     # Navigate to the Can-Data report
@@ -366,7 +395,46 @@ class Pasos_Scraper(Extractor):
         wait.until(lambda d: d.find_element(
             By.XPATH, trigger_span_xpath
         ).text.strip() == linea_name)
+
+        # La etiqueta cambia ANTES que el estado real del formulario: al elegir
+        # línea el SPA carga sus dependientes (Ruta muestra 'Cargando...').
+        # Encolar en ese lapso envía los parámetros de la línea ANTERIOR
+        # (L6 <- L5). Se espera a que la carga empiece y termine.
+        self._wait_linea_dependencias(driver)
+
+        # Re-verificar tras la carga: el SPA no revirtió la selección.
+        actual = driver.find_element(By.XPATH, trigger_span_xpath).text.strip()
+        if actual != linea_name:
+            raise RuntimeError(
+                f"Tras cargar dependientes la línea es {actual!r}, se esperaba {linea_name!r}")
         driver.save_screenshot(str(self.download_dir / "step12_select_linea.png"))
+
+    @staticmethod
+    def _wait_linea_dependencias(driver: webdriver.Chrome,
+                                 appear_timeout: int = 3,
+                                 load_timeout: int = 60) -> None:
+        """Espera a que el formulario termine de cargar lo que depende de la
+        línea (Ruta, etc.).
+
+        1. Ventana corta para que aparezca 'Cargando...' (el render de React
+           es asíncrono: comprobar solo la ausencia podría pasar antes de que
+           la carga empiece). Si no aparece, la carga ya terminó o fue instantánea.
+        2. Espera a que no quede ningún 'Cargando' en el formulario.
+        """
+        loading_xpath = "//*[contains(normalize-space(text()), 'Cargando')]"
+        try:
+            WebDriverWait(driver, appear_timeout, poll_frequency=0.2).until(
+                EC.presence_of_element_located((By.XPATH, loading_xpath)))
+        except TimeoutException:
+            pass
+        try:
+            WebDriverWait(driver, load_timeout, poll_frequency=0.5).until(
+                lambda d: not d.find_elements(By.XPATH, loading_xpath))
+        except TimeoutException:
+            raise TimeoutError(
+                f"El formulario de Pasos siguió en 'Cargando...' tras {load_timeout}s "
+                "de seleccionar la línea") from None
+        time.sleep(1)  # margen para que el estado se asiente tras el render
 
     def _click_descargar_reporte(self, driver: webdriver.Chrome,
                              timeout: int = 20) -> None:
@@ -547,67 +615,128 @@ class Pasos_Scraper(Extractor):
         wait.until(EC.invisibility_of_element_located(
             (By.CSS_SELECTOR, CENTRAL_IFRAME_CSS)))
 
-    def _download_latest(self, driver: webdriver.Chrome, linea_slug: str,
-                     target_name: str,
-                     status_timeout: int = 600) -> Path:
-        """Pollea la Central hasta COMPLETO y descarga la fila más reciente.
+    def _query_central(self, driver: webdriver.Chrome,
+                       require_table: bool = True) -> None:
+        """Clickea 'Consultar' (dos veces: a veces el primer clic no despliega
+        la tabla) y espera a que la tabla se renderice.
+
+        require_table=False tolera que la tabla no aparezca (p. ej. la Central
+        no tiene solicitudes hoy): útil para la foto inicial y la fase de
+        aparición, donde 'sin filas' es un estado válido.
+        """
+        wait = WebDriverWait(driver, 30)
+        for _ in range(2):
+            btn = wait.until(EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, "button[type=submit]")))
+            driver.execute_script("arguments[0].click();", btn)
+            time.sleep(2)
+        try:
+            WebDriverWait(driver, 30 if require_table else 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, CENTRAL_TABLE_CSS)))
+        except TimeoutException:
+            if require_table:
+                raise
+        time.sleep(1)  # deja terminar el render del ng-repeat
+
+    def _snapshot_central(self, driver: webdriver.Chrome) -> None:
+        """Foto de la Central ANTES de encolar cualquier línea.
+
+        Toda clave (fecha, nombre) presente aquí es ajena a esta corrida y
+        jamás debe descargarse como si fuera nuestra.
+        """
+        self._navigate_to_downloads(driver)
+        # Una foto vacía puede ser "no hay solicitudes hoy" o "Consultar no
+        # desplegó la tabla". Lo segundo haría que filas previas cuenten como
+        # nuevas (el bug de L1), así que se reintenta antes de aceptarla vacía.
+        rows: list[dict] = []
+        for intento in range(1, 4):
+            self._query_central(driver, require_table=False)
+            rows = read_central_rows(driver)
+            if rows:
+                break
+            print(f"[CENTRAL][FOTO] Intento {intento}: tabla sin filas")
+        self._seen_rows = {(r["fecha"], r["nombre"]) for r in rows}
+        print(f"[CENTRAL][FOTO] {len(self._seen_rows)} filas previas registradas")
+        self._close_downloads_window(driver)
+        self._focus_pasos_form(driver)
+
+    def _download_new_row(self, driver: webdriver.Chrome, linea_slug: str,
+                          target_name: str,
+                          appear_timeout: int = 90,
+                          status_timeout: int = 600) -> Path:
+        """Localiza la solicitud recién encolada, espera COMPLETO y la descarga.
 
         Precondición: estamos dentro del iframe de la Central y acabamos de
-        encolar exactamente una solicitud — por eso 'la fila más reciente' es
-        inequívocamente la nuestra (ventaja del ciclo completo por línea).
+        encolar exactamente una solicitud de Pasos.
 
+        NO se usa 'la fila más reciente': si la solicitud nueva aún no se
+        renderiza, esa sería la de la línea anterior (ya COMPLETO) y se
+        descargaría con el nombre equivocado (L4 <- L3). En su lugar se busca
+        la única fila 'Pasos Por Parada' cuya clave (fecha, nombre) no esté en
+        self._seen_rows.
+
+        appear_timeout: cap para que la solicitud aparezca en la tabla.
         status_timeout: cap de wall-clock para la generación del reporte.
         Sin él, un reporte atorado en EN PROGRESO consumiría el task-timeout
         completo del Cloud Run Job sin log accionable.
         """
-        wait = WebDriverWait(driver, 30)
-        table_css = "table#example.table.responsive.tPainelEventos"
-        deadline = time.monotonic() + status_timeout
-
-        def click_query_button():
-            """Re-localiza y clickea el botón de consulta en cada llamada
-            para evitar referencias stale tras el re-render de Angular."""
-            btn = wait.until(EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "button[type=submit]")))
-            driver.execute_script("arguments[0].click();", btn)
-
-        click_query_button()
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, table_css)))
-        time.sleep(1)  # deja terminar el render del ng-repeat
-
-        # --- Polling de status ---
+        # --- Fase 1: esperar a que aparezca NUESTRA fila ---
+        deadline = time.monotonic() + appear_timeout
         while True:
+            self._query_central(driver, require_table=False)
+            nuevas = [r for r in read_central_rows(driver)
+                      if r["nombre"] == NOMBRE_REPORTE_CENTRAL
+                      and (r["fecha"], r["nombre"]) not in self._seen_rows]
+            if len(nuevas) == 1:
+                break
+            if len(nuevas) > 1:
+                raise RuntimeError(
+                    f"[{linea_slug}] {len(nuevas)} solicitudes nuevas de "
+                    f"'{NOMBRE_REPORTE_CENTRAL}' en la Central "
+                    f"({[r['fecha'] for r in nuevas]}); no se puede saber cuál es "
+                    f"la nuestra. ¿Otra sesión usando la misma cuenta?"
+                )
+            if time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"[{linea_slug}] La solicitud encolada no apareció en la "
+                    f"Central en {appear_timeout}s"
+                )
+            print(f"[{linea_slug}][CENTRAL] Solicitud aún no visible, reintentando")
+            time.sleep(3)
+
+        key = (nuevas[0]["fecha"], nuevas[0]["nombre"])
+        status = nuevas[0]["status"]
+        print(f"[{linea_slug}][FILA] {key[0]} '{key[1]}'")
+
+        # --- Fase 2: polling de status de ESA fila ---
+        deadline = time.monotonic() + status_timeout
+        while True:
+            print(f"[{linea_slug}][STATUS] {status}")
+            if status == "COMPLETO":
+                break
+            # None = la fila no se renderizó en este refresco; se reintenta.
+            if status not in (None, "EN PROGRESO", "ESPERANDO INICIO"):
+                raise RuntimeError(
+                    f"[{linea_slug}] Sonda reportó status inesperado: {status}"
+                )
             if time.monotonic() > deadline:
                 raise TimeoutError(
                     f"[{linea_slug}] La Central no reportó COMPLETO en "
                     f"{status_timeout}s"
                 )
+            time.sleep(10)
+            self._query_central(driver, require_table=False)
+            row = next((r for r in read_central_rows(driver)
+                        if (r["fecha"], r["nombre"]) == key), None)
+            status = row["status"] if row else None
 
-            result = get_latest_row_status(driver, wait)
-            status = result['status']
-            print(f"[{linea_slug}][STATUS] {status}")
-
-            if status == 'COMPLETO':
-                break
-            elif status in ('EN PROGRESO', 'ESPERANDO INICIO'):
-                time.sleep(10)
-                click_query_button()
-                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, table_css)))
-            else:
-                raise RuntimeError(
-                    f"[{linea_slug}] Sonda reportó status inesperado: {status}"
-                )
-
-        # --- Disparar la descarga ---
-        rows = driver.find_elements(By.CSS_SELECTOR, "table.tPainelEventos tbody tr")
-        latest_row = rows[result['latest_row_index']]
-        latest_date = datetime.strptime(result['latest_date'], "%d/%m/%Y %H:%M:%S")
-
+        # --- Disparar la descarga sobre la fila localizada por clave ---
         existing = set(self.download_dir.glob("*"))  # snapshot pre-descarga
-        download_link = latest_row.find_element(By.CSS_SELECTOR, "a.btn-links")
+        download_link = find_row_element(driver, *key).find_element(
+            By.CSS_SELECTOR, "a.btn-links")
         driver.execute_script("arguments[0].click();", download_link)
-        print(f"[{linea_slug}][DOWNLOAD] Disparada descarga del reporte fechado "
-            f"{latest_date.strftime('%d/%m/%Y %H:%M:%S')}")
+        print(f"[{linea_slug}][DOWNLOAD] Disparada descarga de la fila "
+              f"{key[0]} '{key[1]}'")
 
         # --- Esperar un .csv real (sin parciales) ---
         file_timeout = 120
@@ -618,6 +747,11 @@ class Pasos_Scraper(Extractor):
             has_partial = any(f.suffix in ('.crdownload', '.tmp') for f in new_files)
             real_csvs = [f for f in new_files if f.suffix == '.csv']
             if real_csvs and not has_partial:
+                if len(real_csvs) > 1:
+                    raise RuntimeError(
+                        f"[{linea_slug}] Aparecieron {len(real_csvs)} CSV nuevos "
+                        f"tras una sola descarga: {[f.name for f in real_csvs]}"
+                    )
                 new_file = real_csvs[0]
                 break
             time.sleep(1)
@@ -642,7 +776,32 @@ class Pasos_Scraper(Extractor):
             target.unlink()
         new_file.rename(target)
         print(f"[{linea_slug}][OK] {target.name}")
+
+        # Todo lo visible ahora (incluida nuestra fila) queda como ya visto:
+        # la siguiente línea solo aceptará una fila estrictamente nueva.
+        self._seen_rows.add(key)
+        self._seen_rows |= {(r["fecha"], r["nombre"]) for r in read_central_rows(driver)}
         return target
+
+    @staticmethod
+    def _check_unique_content(target: Path, linea_slug: str,
+                              hashes: dict[str, str]) -> None:
+        """Red de seguridad contra el traspapeleo: dos líneas distintas nunca
+        deben traer el mismo contenido. Un CSV de solo encabezado se avisa
+        (es sospechoso: así se veía el L1 traspapelado) pero no se aborta.
+        """
+        data = target.read_bytes()
+        non_empty_lines = [l for l in data.splitlines() if l.strip()]
+        if len(non_empty_lines) <= 1:
+            print(f"[{linea_slug}][WARN] {target.name} solo trae encabezado")
+            return
+        digest = hashlib.sha256(data).hexdigest()
+        if digest in hashes:
+            raise RuntimeError(
+                f"[{linea_slug}] {target.name} tiene contenido idéntico al de "
+                f"{hashes[digest]}: descarga traspapelada."
+            )
+        hashes[digest] = linea_slug
 
     # Make logout of Sonda platform
     def _logout(self, driver: webdriver.Chrome) -> None:
@@ -679,12 +838,17 @@ class Pasos_Scraper(Extractor):
         dt_f = (end - timedelta(minutes=1)).replace(second=0, microsecond=0)
 
         downloaded: list[Path] = []
+        hashes: dict[str, str] = {}
+        self._seen_rows = set()
 
         driver = self._start_driver()
         try:
             self._login(driver)
             self._navigate_to_report(driver)
             self._request_datetime_interval(driver, dt_i, dt_f)
+            # Foto de la Central antes de encolar: ninguna fila previa
+            # (de otra corrida o descarga manual) podrá confundirse con la nuestra.
+            self._snapshot_central(driver)
 
             # Ciclo completo por línea (Opción B): encolar → Central → esperar
             # → descargar → cerrar Central → volver al formulario → siguiente.
@@ -699,8 +863,9 @@ class Pasos_Scraper(Extractor):
                 print(f"[{slug}][ENCOLADO] Solicitud enviada")
 
                 self._navigate_to_downloads(driver)
-                target = self._download_latest(driver, slug,
-                                               nombre_csv(slug, start, end))
+                target = self._download_new_row(driver, slug,
+                                                nombre_csv(slug, start, end))
+                self._check_unique_content(target, slug, hashes)
                 downloaded.append(target)
 
                 self._close_downloads_window(driver)
