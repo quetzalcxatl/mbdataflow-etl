@@ -41,7 +41,7 @@ gcloud run jobs create pipeline-pasos `
   --memory=2Gi `
   --cpu=1 `
   --set-env-vars="GCP_PROJECT_ID=$PROJECT_ID,DRIVE_PASOS_FOLDER_ID=$DRIVE_PASOS_FOLDER_ID" `
-  --set-secrets="SONDA_QUERY_USER=SONDA_QUERY_USER:latest,SONDA_QUERY_PASSWORD=SONDA_QUERY_PASSWORD:latest"
+  --set-secrets="SONDA_PERSONAL_USER=SONDA_PERSONAL_USER:latest,SONDA_PERSONAL_PASSWORD=SONDA_PERSONAL_PASSWORD:latest"
 
 Write-Host ""
 Write-Host "==> Job 'pipeline-pasos' creado." -ForegroundColor Green

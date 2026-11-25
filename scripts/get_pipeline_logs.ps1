@@ -24,7 +24,7 @@
 [CmdletBinding()]
 param(
     [string]$Project = 'centrodecontrol',
-    [string]$Job = 'pipeline-pv',
+    [string]$Job = 'pipeline-pasos',
     [string]$Region,
     [string]$Execution,
     [switch]$Summary,

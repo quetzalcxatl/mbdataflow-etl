@@ -56,8 +56,8 @@ import sys
 from datetime import date, datetime, timedelta
 
 from config.settings import (
-    SONDA_QUERY_USER,
-    SONDA_QUERY_PASSWORD,
+    SONDA_PERSONAL_USER,
+    SONDA_PERSONAL_PASSWORD,
     DRIVE_PASOS_FOLDER_ID,
 )
 from extract.scrapers.Pasos import Pasos_Scraper, LINEAS_OPERATIVAS, LINEA_SLUG, nombre_csv
@@ -184,8 +184,9 @@ def _validate_env() -> str:
     """
     faltantes = []
     for var, val in [
-        ("SONDA_QUERY_USER",      SONDA_QUERY_USER),
-        ("SONDA_QUERY_PASSWORD",  SONDA_QUERY_PASSWORD),
+        # Pasos inicia sesión con la cuenta PERSONAL (ver Pasos_Scraper._login).
+        ("SONDA_PERSONAL_USER",     SONDA_PERSONAL_USER),
+        ("SONDA_PERSONAL_PASSWORD", SONDA_PERSONAL_PASSWORD),
         ("DRIVE_PASOS_FOLDER_ID", DRIVE_PASOS_FOLDER_ID),
     ]:
         if not val:
